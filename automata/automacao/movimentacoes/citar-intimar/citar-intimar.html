@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .container {
+    background: #1e293b;
+    border-radius: 16px;
+    width: 100%;
+    max-width: 600px;
+    box-shadow: 0 25px 60px rgba(0,0,0,.5);
+    overflow: hidden;
+  }
+
+  .header {
+    background: linear-gradient(135deg, #1d4ed8, #7c3aed);
+    padding: 24px 28px;
+  }
+  .header h1 {
+    font-size: 18px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .header p {
+    font-size: 13px;
+    opacity: .8;
+    margin-top: 4px;
+  }
+
+  .body {
+    padding: 24px 28px;
+  }
+
+  label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    margin-bottom: 5px;
+    margin-top: 16px;
+  }
+  label:first-child { margin-top: 0; }
+
+  textarea, select, input {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1.5px solid #334155;
+    border-radius: 8px;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-size: 14px;
+    font-family: inherit;
+    transition: border-color .15s;
+  }
+  textarea:focus, select:focus, input:focus {
+    outline: none;
+    border-color: #3b82f6;
+  }
+  textarea {
+    height: 140px;
+    font-family: 'Consolas', 'Fira Code', monospace;
+    font-size: 12px;
+    resize: vertical;
+  }
+  select { cursor: pointer; }
+
+  .row {
+    display: flex;
+    gap: 12px;
+  }
+  .row > div { flex: 1; }
+
+  .btn-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 24px;
+  }
+  .btn {
+    flex: 1;
+    padding: 11px;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background .15s, transform .1s;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn-primary {
+    background: #1d4ed8;
+    color: #fff;
+  }
+  .btn-primary:hover { background: #1e40af; }
+  .btn-primary:disabled {
+    background: #475569;
+    cursor: not-allowed;
+  }
+  .btn-ghost {
+    background: #334155;
+    color: #94a3b8;
+  }
+  .btn-ghost:hover { background: #475569; color: #e2e8f0; }
+
+  .status {
+    margin-top: 16px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.5;
+    min-height: 44px;
+    background: #0f172a;
+    border: 1px solid #1e293b;
+  }
+  .status.info  { border-color: #1d4ed8; }
+  .status.ok    { border-color: #16a34a; background: #052e16; }
+  .status.error { border-color: #dc2626; background: #450a0a; color: #fca5a5; }
+
+  .footer {
+    padding: 14px 28px;
+    font-size: 11px;
+    color: #475569;
+    text-align: center;
+    border-top: 1px solid #1e293b;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>📋 Citar/Intimar em Lote</h1>
+    <p>PJe Sejud Cariri · Automação de expedientes</p>
+  </div>
+
+  <div class="body">
+    <label>Processos (um por linha)</label>
+    <textarea id="textarea" placeholder="0000000-00.0000.0.00.0000&#10;0000001-00.0000.0.00.0000"></textarea>
+
+    <div class="row">
+      <div>
+        <label>Polo</label>
+        <select id="polo">
+          <option value="passivo" selected>Polo Passivo</option>
+          <option value="ativo">Polo Ativo</option>
+        </select>
+      </div>
+      <div>
+        <label>Tipo de Ato</label>
+        <select id="tipo">
+          <option value="intimar" selected>Intimar</option>
+          <option value="citar">Citar</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Meio</label>
+        <select id="meio">
+          <option value="sistema" selected>Sistema</option>
+          <option value="correios">Correios</option>
+          <option value="mandados">Central de Mandados</option>
+        </select>
+      </div>
+      <div>
+        <label>Prazo (dias)</label>
+        <input id="prazo" type="number" value="15" min="1" max="365">
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" id="btn-fechar">Cancelar</button>
+      <button class="btn btn-primary" id="btn-iniciar">▶ Iniciar</button>
+    </div>
+
+    <div class="status info" id="status">Pronto. Cole os números dos processos acima.</div>
+  </div>
+
+  <div class="footer">v3.2 · PJe Sejud Cariri</div>
+</div>
+
+<script>
+// ── Referências ──
+const $ = s => document.querySelector(s);
+const statusEl = $('#status');
+const btnIniciar = $('#btn-iniciar');
+// Hosts: usa PJE_CONFIG se disponível, senão fallback inline
+const HOSTS = (window.PJE_CONFIG && window.PJE_CONFIG.htmlHosts) || [
+  'https://pje-treinamento-release.tjce.jus.br',
+  'https://pje.tjce.jus.br',
+  'https://pje-homologacao.tjce.jus.br'
+];
+
+// ══════════════════════════════════════════════════════════
+// Comunicação com a aba PJe via postMessage (broadcast)
+// A extensão (citar-intimar.js) escuta e responde.
+// ══════════════════════════════════════════════════════════
+
+function enviarParaAbaPJe(msg) {
+  // Tenta via opener (se esta página foi aberta com window.open)
+  try {
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage(msg, '*');
+    }
+  } catch(e) {}
+  // Também via broadcast (alcança todas as abas com a extensão)
+  try {
+    window.postMessage(msg, '*');
+  } catch(e) {}
+}
+
+let resolverAba = null;
+window.addEventListener('message', function(e) {
+  if (!e.data) return;
+  if (e.data.pjeCiResposta && resolverAba) {
+    resolverAba(e.data);
+    resolverAba = null;
+  }
+});
+
+function aguardarResposta(timeout) {
+  return new Promise(function(resolve) {
+    resolverAba = resolve;
+    setTimeout(function() { resolverAba = null; resolve(null); }, timeout || 15000);
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+// API via postMessage (proxy pela extensão na aba PJe)
+// ══════════════════════════════════════════════════════════
+
+async function infoDoProcesso(numero) {
+  statusEl.textContent = '🔍 Consultando ' + numero + '...';
+  statusEl.className = 'status info';
+
+  enviarParaAbaPJe({ pjeCiConsulta: true, numero: numero });
+
+  const resp = await aguardarResposta(20000);
+  if (resp && resp.encontrado) {
+    return { id: resp.idProcesso, fila: resp.fila, host: resp.host };
+  }
+  if (resp && resp.erro) {
+    throw new Error(resp.erro);
+  }
+  throw new Error('Processo não encontrado em nenhuma fila (timeout ou sem resposta)');
+}
+
+function abrirTarefa(idProcesso, fila, host) {
+  const url = host + '/pje1grau/ng2/dev.seam#/painel-usuario-interno/conteudo-tarefa/'
+            + idProcesso + '/' + encodeURIComponent(fila);
+  window.open(url, '_blank');
+}
+
+function abrirEAutomatizar(numero, idProcesso, fila, host) {
+  const config = {
+    ativo: true,
+    polo:   $('#polo').value,
+    tipo:   $('#tipo').value,
+    meio:   $('#meio').value,
+    prazo:  $('#prazo').value,
+    numero: numero,
+    idProcesso: idProcesso,
+    fila: fila
+  };
+
+  const url = host + '/pje1grau/ng2/dev.seam#/painel-usuario-interno/conteudo-tarefa/'
+            + idProcesso + '/' + encodeURIComponent(fila);
+
+  // Salva a config num cookie pra extensão ler
+  const cfgJson = JSON.stringify(config);
+  // Nota: não podemos setar cookie cross-domain daqui,
+  // então mandamos a config junto com o comando de abrir.
+  enviarParaAbaPJe({ pjeCiAbrir: true, config: config, url: url });
+
+  // Fallback: abre direto (a extensão vai ler o cookie se setado)
+  window.open(url, '_blank');
+}
+
+// ══════════════════════════════════════════════════════════
+// Iniciar
+// ══════════════════════════════════════════════════════════
+
+async function iniciar() {
+  const textarea = $('#textarea');
+  const numeros = (textarea.value || '').match(/\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/g) || [];
+
+  if (!numeros.length) {
+    statusEl.textContent = 'Nenhum número de processo encontrado.';
+    statusEl.className = 'status error';
+    return;
+  }
+
+  btnIniciar.disabled = true;
+  let abertos = 0, erros = 0;
+
+  for (let i = 0; i < numeros.length; i++) {
+    const n = numeros[i];
+    statusEl.textContent = '[' + (i + 1) + '/' + numeros.length + '] Consultando ' + n + '...';
+    statusEl.className = 'status info';
+
+    try {
+      const info = await infoDoProcesso(n);
+      const host = info.host || HOSTS[0];
+
+      if (i === 0) {
+        abrirEAutomatizar(n, info.id, info.fila, host);
+        statusEl.textContent = '✓ Primeiro processo aberto com automação. Os demais abrirão em sequência.';
+        statusEl.className = 'status ok';
+        btnIniciar.disabled = false;
+        return;
+      } else {
+        abrirTarefa(info.id, info.fila, host);
+      }
+
+      abertos++;
+      statusEl.textContent = '[' + (i + 1) + '/' + numeros.length + '] ✓ ' + n + ' aberto';
+      statusEl.className = 'status ok';
+      await new Promise(r => setTimeout(r, 800));
+    } catch(err) {
+      erros++;
+      statusEl.innerHTML = '[' + (i + 1) + '/' + numeros.length + '] ✗ ' + n + ': ' + err.message;
+      statusEl.className = 'status error';
+      await new Promise(r => setTimeout(r, 1500));
+    }
+  }
+
+  statusEl.textContent = 'Concluído: ' + abertos + ' abertos, ' + erros + ' erros.';
+  statusEl.className = erros > 0 ? 'status error' : 'status ok';
+  btnIniciar.disabled = false;
+}
+
+$('#btn-iniciar').addEventListener('click', iniciar);
+$('#btn-fechar').addEventListener('click', function() { window.close(); });
+
+// Enter no textarea não submete, só fecha (igual overlay)
+$('#textarea').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && e.ctrlKey) iniciar();
+});
+</script>
+
+</body>
+</html>

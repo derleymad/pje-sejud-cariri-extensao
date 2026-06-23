@@ -1,0 +1,80 @@
+{
+  "manifest_version": 3,
+  "name": "Pje Sejud Cariri",
+  "version": "4.3",
+  "host_permissions": [
+    "https://pje.tjce.jus.br/*",
+    "https://*.tjce.jus.br/*",
+    "https://*.cnj.cloud/*"
+  ],
+  "permissions": [
+    "cookies",
+    "scripting",
+    "tabs",
+    "storage",
+    "clipboardWrite"
+  ],
+  "background": {
+    "service_worker": "core/background.js"
+  },
+  "action": {
+    "default_popup": "ui/popup.html",
+    "default_icon": { "128": "icon.png" },
+    "default_title": "PJe Sejud Cariri"
+  },
+  "options_ui": {
+    "page": "ui/options.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://pje.tjce.jus.br/*"
+      ],
+      "js": [
+        "automata/comum/network-monitor.js",
+        "core/suppress_dialogs.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://*.tjce.jus.br/*",
+        "https://*.cnj.cloud/*"
+      ],
+      "exclude_matches": [
+        "https://sei-adm.tjce.jus.br/*",
+        "https://sei.tjce.jus.br/*"
+      ],
+      "js": [
+        "automata/comum/loadings.js",
+        "automata/comum/config.js",
+        "automata/comum/theme.js",
+        "automata/comum/utils.js",
+        "automata/comum/infra.js",
+        "core/content.js",
+        "automata/duplicados/duplicados.js",
+        "automata/agrupador/agrupador.js",
+        "automata/automacao/movimentacoes/citar-intimar/core.js",
+        "automata/automacao/movimentacoes/citar-intimar/polo-picker.js",
+        "automata/automacao/movimentacoes/citar-intimar/auto-citar.js",
+        "automata/automacao/movimentacoes/alvara/auto-alvara.js",
+        "automata/analisador-polos/analisador-polos.js",
+        "core/dropdown.js"
+      ],
+      "run_at": "document_end",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["automata/automacao/movimentacoes/citar-intimar/citar-intimar.html", "icon.png", "automata/comum/html2canvas.min.js"],
+      "matches": ["https://*.tjce.jus.br/*", "https://*.cnj.cloud/*"]
+    }
+  ],
+  "icons": {
+    "128": "icon.png"
+  }
+}
