@@ -9,6 +9,7 @@ function salvarEstadoAgrupador(state) {
   try {
     sessionStorage.setItem(AGR_STORAGE_KEY, JSON.stringify({
       processos: state.processos || [],
+      processosErro: state.processosErro || [],
       scanning: state.scanning || false,
       keyword: state.keyword || '',
       mode: state.mode || 'auto',
@@ -235,6 +236,7 @@ function _agrRuntime() {
       etapa: '',                  // texto da etapa atual ("Etapa 2/2: escaneando", ...)
       total: 0, done: 0, matches: 0,
       processos: [],              // matches encontrados (parciais durante o scan)
+      processosErro: [],          // processos que falharam ao buscar (distinto de "não encontrado")
       multiFila: 0,
       cancelFlag: { cancel: false },
       uiOverlay: null,            // overlay atualmente conectado (null se modal fechado)
@@ -271,6 +273,18 @@ function _agrRenderUI(rt) {
     overlay.querySelector('#pje-agr-stat-multifila').textContent = rt.multiFila || 0;
     var fu = []; rt.processos.forEach(function(p){ if(fu.indexOf(p.fila)===-1) fu.push(p.fila); });
     overlay.querySelector('#pje-agr-stat-por-fila').textContent = fu.length;
+    // Card de erros: processos que falharam ao buscar (distinto de "não encontrado")
+    overlay.querySelector('#pje-agr-stat-erros').textContent = (rt.processosErro || []).length;
+    var cardErros = overlay.querySelector('#pje-agr-stat-card-erros');
+    if (cardErros) {
+      var errosLista = rt.processosErro || [];
+      if (errosLista.length > 0) {
+        var lista = errosLista.map(function(e) { return e.numero + ' (' + e.erro + ')'; }).join('\n');
+        cardErros.title = errosLista.length + ' processo(s) com ERRO na busca (não foi possível ler a página):\n\n' + lista;
+      } else {
+        cardErros.title = 'Nenhum erro na busca.';
+      }
+    }
     // Tooltip no card de multi-fila: aparece ao passar o mouse
     var cardMf = overlay.querySelector('#pje-agr-stat-card-multifila');
     if (cardMf) {
@@ -616,6 +630,10 @@ function abrirAgrupadorModal() {
               '<div class="agr-stat-icon" style="background:#f3e8ff"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg></div>' +
               '<div class="agr-stat-info"><span class="agr-stat-value" id="pje-agr-stat-por-fila">0</span><span class="agr-stat-label">Filas Distintas</span></div>' +
             '</div>' +
+            '<div class="agr-stat-card" id="pje-agr-stat-card-erros" style="position:relative;cursor:help" title="">' +
+              '<div class="agr-stat-icon" style="background:#fef2f2"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>' +
+              '<div class="agr-stat-info"><span class="agr-stat-value" id="pje-agr-stat-erros">0</span><span class="agr-stat-label">Erros na Busca</span></div>' +
+            '</div>' +
           '</div>' +
           // Empty state (default)
           '<div class="agr-empty" id="pje-agr-empty">' +
@@ -886,7 +904,7 @@ function abrirAgrupadorModal() {
       rt.scanning = true; rt.cancelled = false; rt.finishedAt = 0;
       rt.mode = mode; rt.keywords = keywords; rt.keyword = kwStr; rt.funcLabel = funcLabel;
       rt.etapa = 'Preparando'; rt.total = 0; rt.done = 0; rt.matches = 0;
-      rt.processos = []; rt.multiFila = 0;
+      rt.processos = []; rt.processosErro = []; rt.multiFila = 0;
       rt.cancelFlag = { cancel: false }; rt._lastRenderedCount = -1;
       var cancelFlag = rt.cancelFlag;
       _agrSalvarEstado(rt);
@@ -955,10 +973,16 @@ function abrirAgrupadorModal() {
                 } else {
                   console.log('[Agrupador] ❌ [' + kwStr + '] NÃO encontrado em ' + proc.numero + ' (requer todas as palavras)');
                 }
-              } catch(e) { proc._match = false; console.error('[Agrupador] Erro scan ' + proc.numero + ': ' + e.message); }
+              } catch(e) {
+                proc._match = false;
+                rt.processosErro.push({ numero: proc.numero, idProcesso: proc.idProcesso, erro: e.message });
+                console.error('%c[Agrupador] ⛔ ERRO ao buscar ' + proc.numero + ': ' + e.message, 'color:#dc2626;font-weight:bold');
+              }
               rt.done++;
               _agrRenderUI(rt);   // sincroniza a contagem na UI a cada página
-            }, 3, cancelFlag);
+              // Pausa de 500ms entre cada busca para não saturar o servidor
+              if (!cancelFlag.cancel) await new Promise(function(r) { setTimeout(r, 500); });
+            }, 1, cancelFlag);
           }
           console.log('[Agrupador] Etapa 2 concluída:', rt.done, 'páginas |', rt.matches, 'matches');
         } else {
@@ -1003,10 +1027,16 @@ function abrirAgrupadorModal() {
                     console.log('[Agrupador] ✅ [' + kwStr + '] ENCONTRADO em ' + procM.numero + ' — ' + ctxStrM);
                     _agrSalvarEstado(rt);
                   }
-                } catch(e) { procM._match = false; console.error('[Agrupador] Erro scan ' + procM.numero + ': ' + e.message); }
+                } catch(e) {
+                  procM._match = false;
+                  rt.processosErro.push({ numero: procM.numero, idProcesso: procM.idProcesso, erro: e.message });
+                  console.error('%c[Agrupador] ⛔ ERRO ao buscar ' + procM.numero + ': ' + e.message, 'color:#dc2626;font-weight:bold');
+                }
                 rt.done++;
                 _agrRenderUI(rt);
-              }, 3, cancelFlag);
+                // Pausa de 500ms entre cada busca para não saturar o servidor
+                if (!cancelFlag.cancel) await new Promise(function(r) { setTimeout(r, 500); });
+              }, 1, cancelFlag);
             }
           }
         }
@@ -1020,6 +1050,7 @@ function abrirAgrupadorModal() {
       _agrRenderUI(rt);
 
       var totalMatch = rt.processos.length;
+      var totalErros = (rt.processosErro || []).length;
       var msg;
       if (cancelFlag.cancel) {
         msg = totalMatch > 0
@@ -1031,6 +1062,13 @@ function abrirAgrupadorModal() {
           : '📋 <strong>' + totalMatch + '</strong> com ' + funcLabel;
       } else {
         msg = '📭 Nenhum processo com <strong>' + funcLabel + '</strong> encontrado nas páginas.';
+      }
+      if (totalErros > 0) {
+        msg += '<br>⚠️ <strong>' + totalErros + '</strong> processo(s) com ERRO na busca — passe o mouse sobre o card "Erros na Busca" para ver quais.';
+        console.log('%c[Agrupador] ⚠️ ' + totalErros + ' processo(s) com erro:', 'color:#dc2626;font-weight:bold');
+        (rt.processosErro || []).forEach(function(e, i) {
+          console.log('%c  ' + (i+1) + '. ' + e.numero + ' — ' + e.erro, 'color:#dc2626');
+        });
       }
       mostrarToastAgr(msg, totalMatch > 0 && !cancelFlag.cancel ? 'success' : (cancelFlag.cancel ? 'warning' : 'info'));
     });

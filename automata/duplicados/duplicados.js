@@ -209,25 +209,75 @@
     }
     if (statusEl) statusEl.textContent = 'Consultando /tarefas para ' + numerosUnicos.length + ' processos...';
     var progressEl = document.getElementById('pje-scan-toast-progress');
-    var mapa = {}, LOTE2 = 6;
-    for (var b = 0; b < numerosUnicos.length; b += LOTE2) {
-      if (abortCtrl.signal.aborted) break;
-      var loteNums = numerosUnicos.slice(b, Math.min(b + LOTE2, numerosUnicos.length));
-      var tarefasTarefas = loteNums.map(function(num) {
-        return fetch(API + '/tarefas', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ numeroProcesso: num, competencia: '', etiquetas: [] }) })
-          .then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; });
-      });
-      var resultadosTarefas = await Promise.allSettled(tarefasTarefas);
-      resultadosTarefas.forEach(function(rt, k) {
-        var num = loteNums[k], procInfo = processosUnicos[num];
-        if (rt.status === 'fulfilled' && rt.value && Array.isArray(rt.value)) {
-          var primeiro = rt.value[0];
-          var filasDoProcesso = rt.value.map(function(t) { return t.nome; });
-          if (filasDoProcesso.length >= 2) mapa[num] = { filas: filasDoProcesso, idProcesso: procInfo.idProcesso, idTaskInstance: primeiro.idTaskInstance || primeiro.id || '' };
+    // ── Helper: fetch /tarefas (sem retry — retentar só piora o rate limit) ──
+    async function fetchTarefas(num) {
+      var url = API + '/tarefas';
+      var body = JSON.stringify({ numeroProcesso: num, competencia: '', etiquetas: [] });
+      try {
+        console.log('%c[Duplicados] POST /tarefas → ' + num, 'color:#3b82f6');
+        var r = await fetch(url, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: body });
+        if (!r.ok) { console.warn('%c[Duplicados] HTTP ' + r.status + ' para ' + num, 'color:#f59e0b'); return null; }
+        var data = await r.json();
+        var qtdFilas = Array.isArray(data) ? data.length : 0;
+        if (qtdFilas > 0) {
+          var nomes = data.map(function(t) { return t.nome || '?'; });
+          console.log('%c[Duplicados] ✓ ' + num + ': ' + qtdFilas + ' fila(s) → ' + JSON.stringify(nomes).substring(0, 200), 'color:#10b981');
+        } else {
+          console.log('%c[Duplicados] ✓ ' + num + ': 0 filas', 'color:#94a3b8');
         }
-      });
-      var consultados = Math.min(b + LOTE2, numerosUnicos.length);
-      if (progressEl) progressEl.textContent = consultados + ' de ' + numerosUnicos.length + ' processos consultados';
+        return data;
+      } catch(e) {
+        var msg = e.message || String(e);
+        console.warn('%c[Duplicados] ✗ ERRO em ' + num + ': ' + msg + ' (não será retentado — rate limit)', 'color:#ef4444');
+        return null;
+      }
+    }
+
+    // ── Loop de consulta: 1 por vez, com pausas generosas ──
+    var mapa = {};
+    var errosConsecutivos = 0;
+    var MAX_ERROS_ANTES_PAUSA = 5;
+    var PAUSA_CIRCUIT_BREAKER = 30000; // 30s
+    var totalProc = numerosUnicos.length;
+
+    for (var i = 0; i < totalProc; i++) {
+      if (abortCtrl.signal.aborted) break;
+
+      // Circuit breaker: muitos erros seguidos = servidor bloqueando
+      if (errosConsecutivos >= MAX_ERROS_ANTES_PAUSA) {
+        console.warn('%c[Duplicados] ⚠️ ' + errosConsecutivos + ' erros consecutivos — pausando ' + (PAUSA_CIRCUIT_BREAKER/1000) + 's para o servidor respirar...', 'color:#f59e0b;font-weight:bold');
+        if (statusEl) statusEl.textContent = 'Pausa de ' + (PAUSA_CIRCUIT_BREAKER/1000) + 's (servidor sobrecarregado)...';
+        await new Promise(function(r) { setTimeout(r, PAUSA_CIRCUIT_BREAKER); });
+        errosConsecutivos = 0;
+        if (statusEl) statusEl.textContent = 'Retomando consulta...';
+      }
+
+      var num = numerosUnicos[i];
+      var procInfo = processosUnicos[num];
+
+      console.log('%c[Duplicados] ' + (i+1) + '/' + totalProc + ' → ' + num, 'color:#64748b;font-weight:bold');
+
+      var data = await fetchTarefas(num);
+
+      if (data && Array.isArray(data) && data.length >= 2) {
+        var filasDoProcesso = data.map(function(t) { return t.nome; });
+        var primeiro = data[0];
+        mapa[num] = { filas: filasDoProcesso, idProcesso: procInfo.idProcesso, idTaskInstance: primeiro.idTaskInstance || primeiro.id || '' };
+        console.log('%c[Duplicados] 🔴 DUPLICADO: ' + num + ' em ' + filasDoProcesso.length + ' filas', 'color:#dc2626;font-weight:bold');
+        errosConsecutivos = 0;
+      } else if (data) {
+        errosConsecutivos = 0;  // resposta OK
+      } else {
+        errosConsecutivos++;  // erro
+      }
+
+      if (progressEl) progressEl.textContent = (i+1) + ' de ' + totalProc + ' processos consultados';
+
+      // Pausa entre requisições: 800ms normal, 5s se teve erro
+      if (i < totalProc - 1 && !abortCtrl.signal.aborted) {
+        var pausa = errosConsecutivos > 0 ? 5000 : 800;
+        await new Promise(function(r) { setTimeout(r, pausa); });
+      }
     }
     delete window._dupAbort;
     var duplicados = [];
