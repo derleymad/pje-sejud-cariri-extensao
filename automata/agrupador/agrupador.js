@@ -56,15 +56,24 @@ async function abrirAutosNovaAba(idProcesso, idTaskInstance, numero) {
       _r.call(window, url, '_blank');
     }
   }
-  if (!idProcesso) { abrirBg(getAutosUrl(numero)); return; } // sem id: melhor esforço
+  // Sem idProcesso (ex.: multi-fila do modo manual): resolve consultando as filas.
+  if (!idProcesso && numero && typeof consultarProcessoAgrupador === 'function') {
+    try {
+      var info = await consultarProcessoAgrupador(numero);
+      if (info && info.idProcesso) {
+        idProcesso = info.idProcesso;
+        if (!idTaskInstance) idTaskInstance = info.idTaskInstance || '';
+      }
+    } catch(e) { console.warn('[Agrupador] consultarProcessoAgrupador falhou p/ ' + numero + ': ' + e.message); }
+  }
+  if (!idProcesso) { mostrarToastAgr('⚠️ Não foi possível identificar o processo para abrir os autos.', 'warning'); return; }
   try {
     var chave = await ProcessosAPI.getChaveAcesso(idProcesso);
     if (!chave) throw new Error('chave de acesso vazia');
     abrirBg(ProcessosAPI.buildAutosUrl(idProcesso, chave, idTaskInstance || ''));
   } catch(e) {
     console.warn('[Agrupador] Falha ao gerar chave dos autos p/ ' + numero + ': ' + e.message);
-    mostrarToastAgr('⚠️ Não gerou a chave de acesso — abrindo autos sem chave.', 'warning');
-    abrirBg(getAutosUrl(numero));
+    mostrarToastAgr('⚠️ Não foi possível gerar a chave de acesso aos autos.', 'warning');
   }
 }
 
@@ -113,17 +122,16 @@ function renderPoloStatusPill(status, letra, nomePolo) {
 
 // Ícone + label por tipo de representante.
 var REP_TIPOS = {
-  advogado:   { ic: AGR_ICON_BRIEFASE,  cor: '#7c3aed', lbl: 'Advogado' },
-  procurador: { ic: AGR_ICON_BUILDING,  cor: '#0284c7', lbl: 'Procuradoria' },
-  defensor:   { ic: AGR_ICON_SHIELD,    cor: '#0d9488', lbl: 'Defensoria' },
-  mp:         { ic: AGR_ICON_SCALE,     cor: '#b45309', lbl: 'Ministério Público' },
-  outro:      { ic: AGR_ICON_USER,      cor: '#64748b', lbl: 'Representante' }
+  advogado:   { ic: AGR_ICON_BRIEFASE,  lbl: 'Advogado' },
+  procurador: { ic: AGR_ICON_BUILDING,  lbl: 'Procuradoria' },
+  defensor:   { ic: AGR_ICON_SHIELD,    lbl: 'Defensoria' },
+  mp:         { ic: AGR_ICON_SCALE,     lbl: 'Ministério Público' },
+  outro:      { ic: AGR_ICON_USER,      lbl: 'Representante' }
 };
 function renderRepresentante(r) {
   var i = REP_TIPOS[r.tipo] || REP_TIPOS.outro;
   return '<div class="agr-polo-rep">' + i.ic +
-           '<span><b style="color:' + i.cor + '">' + i.lbl + '</b> ' +
-           '<span class="agr-polo-rep-txt">' + r.texto + '</span></span></div>';
+           '<span><b>' + i.lbl + '</b> <span class="agr-polo-rep-txt">' + r.texto + '</span></span></div>';
 }
 
 // Card de uma pessoa (nome + representantes de qualquer tipo).
@@ -211,10 +219,12 @@ function toggleExpandRow(btn, overlay) {
     existing.remove();
     btn.setAttribute('aria-expanded', 'false');
     btn.classList.remove('agr-expand-open');
+    tr.classList.remove('agr-row-expanded');
     return;
   }
   btn.setAttribute('aria-expanded', 'true');
   btn.classList.add('agr-expand-open');
+  tr.classList.add('agr-row-expanded');
   var proc = overlay._agrProcMap ? overlay._agrProcMap[numero] : null;
   var temPolos = !!(proc && proc._polos);
   var detail = document.createElement('tr');
@@ -896,12 +906,18 @@ function injetarEstilosAgrupador() {
 .agr-polo-nome .agr-i{color:#475569;margin-top:1px}
 .agr-polo-reps{margin-top:7px;display:flex;flex-direction:column;gap:4px}
 .agr-polo-rep{display:flex;align-items:flex-start;gap:6px;font-size:10.5px;line-height:1.4;padding:2px 0}
-.agr-polo-rep .agr-i{margin-top:1px}
+.agr-polo-rep .agr-i{color:#64748b;margin-top:1px}
 .agr-polo-rep>span{flex:1;min-width:0;color:#475569}
-.agr-polo-rep b{font-weight:700}
+.agr-polo-rep b{font-weight:700;color:#334155}
 .agr-polo-semrep{font-size:10.5px;color:#94a3b8;font-style:italic;margin-top:6px}
 .agr-polo-loading{padding:22px;text-align:center;font-size:12px;color:#64748b}
 .agr-polo-empty{padding:22px;text-align:center;font-size:12px;color:#94a3b8}
+
+/* Linha expandida: fundo tingido + fita azul à esquerda que desce pelo painel,
+   deixando claro que o painel pertence àquela linha (mesmo acordeão). */
+.agr-row.agr-row-expanded td{background:#eef2ff}
+.agr-row.agr-row-expanded td:first-child{box-shadow:inset 4px 0 0 #3b82f6}
+.agr-detail-cell{border-left:4px solid #3b82f6}
 
 /* ── Etiquetas (badges shadcn) ── */
 .agr-etiqueta{display:inline-flex;align-items:center;font-size:10px;font-weight:500;padding:2px 8px;border-radius:6px;border:1px solid #e2e8f0;background:#fff;color:#475569;margin:1px;line-height:1.4;white-space:nowrap;transition:border-color .15s,color .15s}
