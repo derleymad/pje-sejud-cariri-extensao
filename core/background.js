@@ -115,4 +115,50 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   return true; // resposta assíncrona
 });
 
-console.log('[PJe Sejud] Background worker ativo (fetch + retry + circuit breaker)');
+// ═══════════════════════════════════════════════════════════
+// Handler: apiCall — chamadas de API JSON via background
+// O content script usa ApiClient.post/get que envia mensagens aqui.
+// Todas as URLs são resolvidas relativas ao host do PJe.
+// ═══════════════════════════════════════════════════════════
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.type !== 'apiCall') return;
+
+  // Resolve URL relativa para o host do PJe
+  var senderHost = sender.tab ? new URL(sender.tab.url).hostname : '';
+  var baseUrl = senderHost ? ('https://' + senderHost) : '';
+  var fullUrl = request.url.startsWith('http') ? request.url : baseUrl + request.url;
+
+  var ac = new AbortController();
+  var timer = setTimeout(function() { try { ac.abort(); } catch(e) {} }, 30000);
+
+  var fetchOpts = {
+    method: request.method || 'GET',
+    credentials: 'include',
+    signal: ac.signal,
+    headers: request.headers || {}
+  };
+  if (request.body) {
+    fetchOpts.body = request.body;
+    if (!fetchOpts.headers['Content-Type']) fetchOpts.headers['Content-Type'] = 'application/json';
+  }
+
+  fetch(fullUrl, fetchOpts)
+    .then(function(r) {
+      clearTimeout(timer);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      // Se rawText, retorna texto puro; senão parseia JSON
+      return request.rawText ? r.text() : r.json();
+    })
+    .then(function(data) {
+      sendResponse({ ok: true, data: data });
+    })
+    .catch(function(err) {
+      clearTimeout(timer);
+      if (err.name === 'AbortError') sendResponse({ ok: false, error: 'timeout' });
+      else sendResponse({ ok: false, error: err.message });
+    });
+
+  return true; // assíncrono
+});
+
+console.log('[PJe Sejud] Background worker ativo (fetch + retry + circuit breaker + apiCall)');

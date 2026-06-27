@@ -38,6 +38,10 @@ var _agrPageSize = 50;
 var _agrSort = 'dataChegada-desc';
 // Filtro de fila: 'todas' ou nome exato da fila
 var _agrFilaFilter = 'todas';
+// Filtro de etiqueta: 'todas' ou nomeTagCompleto
+var _agrEtiquetaFilter = 'todas';
+// Modo de visualização: false = processos com match, true = multi-fila
+var _agrShowingMultiFila = false;
 
 function renderizarTabelaAgrupador(overlay, processos, funcLabel, scanning) {
   var tbody = overlay.querySelector('#pje-agr-table-body');
@@ -48,6 +52,13 @@ function renderizarTabelaAgrupador(overlay, processos, funcLabel, scanning) {
   var filtrados = _agrFilaFilter === 'todas'
     ? processos
     : processos.filter(function(p) { return p.fila === _agrFilaFilter; });
+
+  // Filtra por etiqueta se necessário
+  filtrados = _agrEtiquetaFilter === 'todas'
+    ? filtrados
+    : filtrados.filter(function(p) {
+        return (p.etiquetas || []).indexOf(_agrEtiquetaFilter) !== -1;
+      });
 
   var totalPages = Math.ceil(filtrados.length / _agrPageSize);
 
@@ -85,7 +96,13 @@ function renderizarTabelaAgrupador(overlay, processos, funcLabel, scanning) {
     var fmtData = function(ts) { if (!ts) return '—'; return new Date(ts).toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit', year:'numeric'}); };
     var dataChegada = fmtData(p.dataChegada);
     var ultMov = fmtData(p.ultimoMovimento);
-    rows += '<tr class="agr-row' + visitado + '"><td style="color:#94a3b8;font-size:11px">'+globalIdx+'</td><td class="mono">'+p.numero+'</td><td style="font-size:11px;color:#64748b;white-space:nowrap">'+dataChegada+'</td><td style="font-size:11px;color:#64748b;white-space:nowrap">'+ultMov+'</td><td style="font-size:12px;color:#64748b">'+(p.fila||'').substring(0,50)+'</td><td>'+badge+'</td><td style="text-align:center;white-space:nowrap">'+acoesHTML+'</td></tr>';
+    var filaTxt = (p.filas && p.filas.length > 1)
+      ? '<span style="font-weight:600;color:#dc2626">' + p.filas.length + ' filas</span><br><span style="font-size:9px;color:#94a3b8">' + p.filas.map(function(f){ return f.substring(0,40); }).join('<br>') + '</span>'
+      : (p.fila||'').substring(0,50);
+    var etiquetasHtml = (p.etiquetas && p.etiquetas.length)
+      ? p.etiquetas.map(function(e) { return '<span style="display:inline-block;font-size:9px;padding:1px 6px;border-radius:4px;background:#f1f5f9;color:#475569;margin:1px">' + e + '</span>'; }).join(' ')
+      : '<span style="font-size:10px;color:#cbd5e1">—</span>';
+    rows += '<tr class="agr-row' + visitado + '"><td style="color:#94a3b8;font-size:11px">'+globalIdx+'</td><td class="mono">'+p.numero+'</td><td style="font-size:11px;color:#64748b;white-space:nowrap">'+dataChegada+'</td><td style="font-size:11px;color:#64748b;white-space:nowrap">'+ultMov+'</td><td style="font-size:11px;color:#64748b;line-height:1.3">'+filaTxt+'</td><td style="font-size:10px">'+etiquetasHtml+'</td><td>'+badge+'</td><td style="text-align:center;white-space:nowrap">'+acoesHTML+'</td></tr>';
   }
   tbody.innerHTML = rows;
 
@@ -268,10 +285,11 @@ function _agrRenderUI(rt) {
 
   function atualizarStats() {
     if (!stats) return;
-    overlay.querySelector('#pje-agr-stat-total').textContent = rt.processos.length;
-    overlay.querySelector('#pje-agr-stat-grupos').textContent = '1 (' + rt.funcLabel + ')';
+    var totalData = _agrShowingMultiFila ? (rt.processosMultiFila || []) : rt.processos;
+    overlay.querySelector('#pje-agr-stat-total').textContent = totalData.length;
+    overlay.querySelector('#pje-agr-stat-grupos').textContent = _agrShowingMultiFila ? 'Multi-Fila' : ('1 (' + rt.funcLabel + ')');
     overlay.querySelector('#pje-agr-stat-multifila').textContent = rt.multiFila || 0;
-    var fu = []; rt.processos.forEach(function(p){ if(fu.indexOf(p.fila)===-1) fu.push(p.fila); });
+    var fu = []; (rt.processos || []).forEach(function(p){ if(fu.indexOf(p.fila)===-1) fu.push(p.fila); });
     overlay.querySelector('#pje-agr-stat-por-fila').textContent = fu.length;
     // Card de erros: processos que falharam ao buscar (distinto de "não encontrado")
     overlay.querySelector('#pje-agr-stat-erros').textContent = (rt.processosErro || []).length;
@@ -285,12 +303,76 @@ function _agrRenderUI(rt) {
         cardErros.title = 'Nenhum erro na busca.';
       }
     }
-    // Tooltip no card de multi-fila: aparece ao passar o mouse
+    // Cards clicáveis: Total ↔ Multi-Fila alternam a visualização
+    var cardTotal = overlay.querySelector('#pje-agr-stat-card-total');
     var cardMf = overlay.querySelector('#pje-agr-stat-card-multifila');
-    if (cardMf) {
-      cardMf.title = rt.multiFila > 0
-        ? rt.multiFila + ' processo(s) em múltiplas filas foram ignorados — não entram na busca.'
-        : 'Nenhum processo em múltiplas filas.';
+    if (cardTotal && cardMf) {
+      // Reset visual
+      cardMf.style.border = '';
+      cardMf.style.background = '';
+      cardTotal.style.border = '';
+      cardTotal.style.background = '';
+
+      cardMf.style.cursor = (rt.multiFila || 0) > 0 ? 'pointer' : 'help';
+      cardTotal.style.cursor = _agrShowingMultiFila ? 'pointer' : 'default';
+      cardMf.title = (rt.multiFila || 0) > 0 ? 'Clique para ver os ' + rt.multiFila + ' processo(s) em múltiplas filas' : 'Nenhum processo em múltiplas filas.';
+      cardTotal.title = _agrShowingMultiFila ? 'Clique para voltar aos resultados' : '';
+
+      // Destaque visual no card ativo
+      if (_agrShowingMultiFila) {
+        cardMf.style.border = '2px solid #f97316';
+        cardMf.style.background = '#fff7ed';
+      } else {
+        cardTotal.style.border = '2px solid #10b981';
+        cardTotal.style.background = '#f0fdf4';
+      }
+
+      cardMf.onclick = async function() {
+        if ((rt.multiFila || 0) === 0) return;
+        _agrShowingMultiFila = true;
+        _agrPage = 0;
+        overlay._agrProcessosData = rt.processosMultiFila || [];
+        renderizarTabelaAgrupador(overlay, rt.processosMultiFila || [], 'Multi-Fila (' + rt.multiFila + ' processo' + (rt.multiFila>1?'s':'') + ')', false);
+        atualizarStats();
+
+        // Busca /tarefas para cada processo multi-fila (sequencial, 1 por vez)
+        var mfList = rt.processosMultiFila || [];
+        if (!mfList.length) return;
+        mostrarToastAgr('🏷️ Buscando filas de ' + mfList.length + ' processo(s)...', 'info');
+        for (var j = 0; j < mfList.length; j++) {
+          var proc = mfList[j];
+          try {
+            var r = await fetch(API + '/tarefas', {
+              method: 'POST', credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ numeroProcesso: proc.numero, competencia: '', etiquetas: [] })
+            });
+            if (!r.ok) continue;
+            var tarefas = await r.json();
+            if (Array.isArray(tarefas) && tarefas.length > 0) {
+              var todasFilas = tarefas.map(function(t) { return t.nome; }).filter(Boolean);
+              proc.filas = todasFilas;
+              proc.filasNomes = todasFilas;
+              proc.fila = todasFilas[0] || proc.fila;
+              console.log('[Agrupador] /tarefas para ' + proc.numero + ': ' + todasFilas.length + ' filas → ' + todasFilas.join(', '));
+            }
+          } catch(e) { console.warn('[Agrupador] /tarefas erro para ' + proc.numero + ': ' + e.message); }
+          // Re-render a cada 5 processos ou no último
+          if (j % 5 === 0 || j === mfList.length - 1) {
+            renderizarTabelaAgrupador(overlay, mfList, 'Multi-Fila (' + mfList.length + ' processo' + (mfList.length>1?'s':'') + ')', false);
+          }
+          if (j < mfList.length - 1) await new Promise(function(r) { setTimeout(r, 400); });
+        }
+        mostrarToastAgr('✅ ' + mfList.length + ' processo(s) multi-fila analisado(s).', 'success');
+      };
+      cardTotal.onclick = function() {
+        if (!_agrShowingMultiFila) return;
+        _agrShowingMultiFila = false;
+        _agrPage = 0;
+        overlay._agrProcessosData = rt.processos;
+        renderizarTabelaAgrupador(overlay, rt.processos, rt.funcLabel, false);
+        atualizarStats();
+      };
     }
     // Atualiza o select de filtro de fila
     var filaSelect = overlay.querySelector('#pje-agr-fila-select');
@@ -302,9 +384,29 @@ function _agrRenderUI(rt) {
         filaSelect.innerHTML += '<option value="' + f.replace(/"/g,'&quot;') + '"' + (currentVal === f ? ' selected' : '') + '>' + short + '</option>';
       });
     }
+    // Atualiza o select de filtro de etiqueta
+    var etiqSelect = overlay.querySelector('#pje-agr-etiqueta-select');
+    if (etiqSelect) {
+      var etiqAtual = _agrEtiquetaFilter;
+      var etiqs = [];
+      (rt.processos || []).forEach(function(p) {
+        (p.etiquetas || []).forEach(function(e) { if (etiqs.indexOf(e) === -1) etiqs.push(e); });
+      });
+      etiqSelect.innerHTML = '<option value="todas">Todas etiquetas</option>';
+      etiqs.sort().forEach(function(e) {
+        var short = e.length > 40 ? e.substring(0, 37) + '…' : e;
+        etiqSelect.innerHTML += '<option value="' + e.replace(/"/g,'&quot;') + '"' + (etiqAtual === e ? ' selected' : '') + '>' + short + '</option>';
+      });
+    }
   }
   function renderTabela(scanning) {
-    if (rt._lastRenderedCount === rt.processos.length) return;
+    if (rt._lastRenderedCount === rt.processos.length && !_agrShowingMultiFila) return;
+    if (_agrShowingMultiFila) {
+      overlay._agrProcessosData = rt.processosMultiFila || [];
+      _agrPage = 0;
+      renderizarTabelaAgrupador(overlay, rt.processosMultiFila || [], 'Multi-Fila (' + (rt.multiFila||0) + ' processo' + ((rt.multiFila||0)>1?'s':'') + ')', scanning);
+      return;
+    }
     overlay._agrProcessosData = rt.processos;
     _agrPage = 0;
     renderizarTabelaAgrupador(overlay, rt.processos, rt.funcLabel, scanning);
@@ -412,6 +514,9 @@ function _agrLimparRuntime() {
   var rt = _agrRuntime();
   rt.cancelled = true;
   rt.cancelFlag.cancel = true;
+  _agrShowingMultiFila = false;
+  _agrEtiquetaFilter = 'todas';
+  _agrFilaFilter = 'todas';
   try { chrome.runtime.sendMessage({ type: 'cancelAllFetch' }, function(){}); } catch(e){}
   window._agrScanRuntime = null;
   window._agrVisited = {};   // limpa marcação de processos abertos
@@ -614,7 +719,7 @@ function abrirAgrupadorModal() {
           '</div>' +
           // Stats
           '<div class="agr-stats" id="pje-agr-stats" style="display:none">' +
-            '<div class="agr-stat-card">' +
+            '<div class="agr-stat-card" id="pje-agr-stat-card-total">' +
               '<div class="agr-stat-icon" style="background:#f0fdf4"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>' +
               '<div class="agr-stat-info"><span class="agr-stat-value" id="pje-agr-stat-total">0</span><span class="agr-stat-label">Total Processos</span></div>' +
             '</div>' +
@@ -659,6 +764,9 @@ function abrirAgrupadorModal() {
                 '<select id="pje-agr-fila-select" style="padding:4px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:11px;font-family:inherit;color:#475569;background:#fff;cursor:pointer;max-width:200px;outline:none">' +
                   '<option value="todas">Todas as filas</option>' +
                 '</select>' +
+                '<select id="pje-agr-etiqueta-select" style="padding:4px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:11px;font-family:inherit;color:#475569;background:#fff;cursor:pointer;max-width:200px;outline:none">' +
+                  '<option value="todas">Todas etiquetas</option>' +
+                '</select>' +
                 '<button class="pje-btn-agr pje-btn-agr-ghost" id="pje-agr-btn-export" style="padding:6px 12px;font-size:11px">' +
                   '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
                   'Exportar CSV' +
@@ -667,7 +775,7 @@ function abrirAgrupadorModal() {
             '</div>' +
             '<div style="overflow-x:auto" id="pje-agr-table-wrap">' +
               '<table class="agr-table" style="width:100%">' +
-                '<thead><tr><th style="width:40px">#</th><th>Número do Processo</th><th style="width:100px">Data Chegada</th><th style="width:100px">Últ. Movim.</th><th style="width:160px">Fila</th><th style="width:80px">Status</th><th style="width:150px">Ações</th></tr></thead>' +
+                '<thead><tr><th style="width:40px">#</th><th>Número do Processo</th><th style="width:100px">Data Chegada</th><th style="width:100px">Últ. Movim.</th><th style="width:160px">Fila</th><th style="width:180px">Etiquetas</th><th style="width:80px">Status</th><th style="width:150px">Ações</th></tr></thead>' +
                 '<tbody id="pje-agr-table-body">' +
                   '<tr><td colspan="5" style="text-align:center;padding:40px;color:#94a3b8">Nenhum resultado ainda. Selecione filas e clique em <strong>Analisar Processos</strong>.</td></tr>' +
                 '</tbody>' +
@@ -900,6 +1008,11 @@ function abrirAgrupadorModal() {
       var funcLabel = keywords.map(function(k){ return '"' + k + '"'; }).join(' + ');
       var kwStr = keywords.join(' + ');
 
+      // Reseta filtros e modo de visualização para o novo scan
+      _agrShowingMultiFila = false;
+      _agrEtiquetaFilter = 'todas';
+      _agrFilaFilter = 'todas';
+
       // Inicializa o runtime — a partir daqui ele é a fonte de verdade do scan
       rt.scanning = true; rt.cancelled = false; rt.finishedAt = 0;
       rt.mode = mode; rt.keywords = keywords; rt.keyword = kwStr; rt.funcLabel = funcLabel;
@@ -933,8 +1046,9 @@ function abrirAgrupadorModal() {
               var data = await r.json();
               (data.entities||[]).forEach(function(ent) {
                 if (!ent.numeroProcesso || !ent.idProcesso) return;
+                var etiquetas = (ent.tagsProcessoList || []).map(function(t) { return t.nomeTagCompleto; }).filter(Boolean);
                 if (!procMap[ent.numeroProcesso]) {
-                  procMap[ent.numeroProcesso] = { numero: ent.numeroProcesso, idProcesso: ent.idProcesso, idTaskInstance: ent.idTaskInstance || '', fila: fila, filas: [fila], filasNomes: [ent.nomeTarefa || fila], dataChegada: ent.dataChegada || null, ultimoMovimento: ent.ultimoMovimento || null };
+                  procMap[ent.numeroProcesso] = { numero: ent.numeroProcesso, idProcesso: ent.idProcesso, idTaskInstance: ent.idTaskInstance || '', fila: fila, filas: [fila], filasNomes: [ent.nomeTarefa || fila], dataChegada: ent.dataChegada || null, ultimoMovimento: ent.ultimoMovimento || null, etiquetas: etiquetas };
                 } else {
                   procMap[ent.numeroProcesso].filas.push(fila);
                   procMap[ent.numeroProcesso].filasNomes.push(ent.nomeTarefa || fila);
@@ -943,10 +1057,11 @@ function abrirAgrupadorModal() {
             } catch(e) { console.error('[Agrupador] Erro fila ' + fila.substring(0,30) + ': ' + e.message); }
           }, 4, cancelFlag);
 
+          rt.processosMultiFila = [];
           for (var num in procMap) {
             var p = procMap[num];
             if (p.filas.length === 1) processos.push(p);
-            else rt.multiFila++;
+            else { rt.multiFila++; rt.processosMultiFila.push(p); }
           }
           console.log('[Agrupador] Etapa 1: ' + processos.length + ' OK, ' + rt.multiFila + ' multi-fila pulados');
 
@@ -986,7 +1101,7 @@ function abrirAgrupadorModal() {
           }
           console.log('[Agrupador] Etapa 2 concluída:', rt.done, 'páginas |', rt.matches, 'matches');
         } else {
-          // Modo manual
+          // ══ MODO MANUAL: /tarefas → multi-fila? → recuperarProcessos ══
           if (!texto) {
             rt.scanning = false; _agrRenderUI(rt);
             mostrarToastAgr('⚠️ Digite ou cole números de processo para analisar.', 'warning');
@@ -995,17 +1110,67 @@ function abrirAgrupadorModal() {
           }
           var numeros = texto.split(/[\n,;]+/).filter(function(l){return l.trim().length>0}).map(function(l){return l.trim()});
 
-          // ── Etapa 1: consulta cada número na API (concorrência 5) ──
-          rt.etapa = 'Consultando API'; rt.total = numeros.length; rt.done = 0; _agrRenderUI(rt);
-          await parallelLimit(numeros, async function(num) {
-            var info = await consultarProcessoAgrupador(num);
-            rt.done++; _agrRenderUI(rt);
-            return info;
-          }, 5, cancelFlag).then(function(results) {
-            (results||[]).forEach(function(info) { if (info && !info.__error) processos.push({ numero:info.numero||'', idProcesso:info.idProcesso, idTaskInstance:info.idTaskInstance, fila:info.fila, dataChegada:info.dataChegada||null, ultimoMovimento:info.ultimoMovimento||null }); });
-          });
+          rt.etapa = 'Consultando /tarefas'; rt.total = numeros.length; rt.done = 0; rt.matches = 0;
+          rt.processosMultiFila = [];
+          _agrSalvarEstado(rt); _agrRenderUI(rt);
 
-          if (cancelFlag.cancel) { rt.scanning = false; rt.processos = []; _agrSalvarEstado(rt); _agrRenderUI(rt); mostrarToastAgr('🚫 Análise cancelada.', 'warning'); return; }
+          for (var mi = 0; mi < numeros.length; mi++) {
+            if (cancelFlag.cancel) break;
+            var num = numeros[mi];
+
+            try {
+              // Passo 1: /tarefas → verifica em quantas filas está
+              var tR = await fetch(API + '/tarefas', {
+                method: 'POST', credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ numeroProcesso: num, competencia: '', etiquetas: [] })
+              });
+              if (!tR.ok) { console.warn('[Agrupador] /tarefas HTTP ' + tR.status + ' para ' + num); continue; }
+              var tarefas = await tR.json();
+              if (!Array.isArray(tarefas) || tarefas.length === 0) { console.warn('[Agrupador] /tarefas vazio para ' + num); continue; }
+
+              var filasEncontradas = tarefas.map(function(t){ return t.nome; });
+              console.log('[Agrupador] ' + num + ': ' + filasEncontradas.length + ' fila(s) → ' + filasEncontradas.join(', '));
+
+              // Multi-fila → apenas marca, não busca keyword
+              if (filasEncontradas.length >= 2) {
+                rt.multiFila++;
+                rt.processosMultiFila.push({ numero: num, filas: filasEncontradas, filasNomes: filasEncontradas, fila: filasEncontradas[0], idProcesso: '', idTaskInstance: '' });
+                console.log('[Agrupador] ⚠️ Multi-fila: ' + num + ' (' + filasEncontradas.length + ' filas) — ignorado (não busca keyword)');
+                continue;
+              }
+
+              // Passo 2: recuperarProcessosTarefaPendenteComCriterios com a PRIMEIRA fila
+              var filaNome = filasEncontradas[0];
+              var pR = await fetch(API + '/recuperarProcessosTarefaPendenteComCriterios/' + encodeURIComponent(filaNome) + '/false', {
+                method: 'POST', credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ numeroProcesso: num, classe: null, tags: [], page: 0, maxResults: 1, competencia: '' })
+              });
+              if (!pR.ok) { console.warn('[Agrupador] recuperarProcessos HTTP ' + pR.status + ' para ' + num + ' fila=' + filaNome); continue; }
+              var pData = await pR.json();
+              var ent = (pData.entities || [])[0];
+              if (!ent || !ent.idProcesso) { console.warn('[Agrupador] Processo ' + num + ' não encontrado na fila ' + filaNome); continue; }
+
+              var etiquetas = (ent.tagsProcessoList || []).map(function(t){ return t.nomeTagCompleto; }).filter(Boolean);
+              processos.push({
+                numero: ent.numeroProcesso || num,
+                idProcesso: ent.idProcesso,
+                idTaskInstance: ent.idTaskInstance || '',
+                fila: filaNome, filas: [filaNome], filasNomes: [ent.nomeTarefa || filaNome],
+                dataChegada: ent.dataChegada || null,
+                ultimoMovimento: ent.ultimoMovimento || null,
+                etiquetas: etiquetas
+              });
+              console.log('[Agrupador] ✓ ' + num + ': fila=' + filaNome.substring(0,40) + ' | etiquetas=' + (etiquetas.join(',') || 'nenhuma'));
+              rt.done++;
+              _agrRenderUI(rt);
+
+            } catch(e) { console.error('[Agrupador] Erro manual ' + num + ': ' + e.message); }
+
+            // Pausa entre processos
+            if (mi < numeros.length - 1 && !cancelFlag.cancel) await new Promise(function(r){ setTimeout(r, 500); });
+          }
 
           // ── Etapa 2: scan das páginas (concorrência 10) ──
           if (processos.length > 0) {
@@ -1102,7 +1267,19 @@ function abrirAgrupadorModal() {
         _agrFilaFilter = this.value;
         _agrPage = 0;
         var data = overlay._agrProcessosData || [];
-        if (data.length) renderizarTabelaAgrupador(overlay, data, '', false);
+        var label = _agrShowingMultiFila ? 'Multi-Fila' : '';
+        if (data.length) renderizarTabelaAgrupador(overlay, data, label, false);
+      });
+    }
+
+    var etiqSelect = overlay.querySelector('#pje-agr-etiqueta-select');
+    if (etiqSelect) {
+      etiqSelect.addEventListener('change', function() {
+        _agrEtiquetaFilter = this.value;
+        _agrPage = 0;
+        var data = overlay._agrProcessosData || [];
+        var label = _agrShowingMultiFila ? 'Multi-Fila' : '';
+        if (data.length) renderizarTabelaAgrupador(overlay, data, label, false);
       });
     }
 
@@ -1131,10 +1308,11 @@ function abrirAgrupadorModal() {
         var rtCsv = _agrRuntime();
         var matchLabel = rtCsv.keyword || '';
         var filaInfo = _agrFilaFilter !== 'todas' ? ' · Filtro: ' + _agrFilaFilter.substring(0, 60) : '';
-        var csv = 'Número;Data Chegada;Última Movimentação;idProcesso;idTaskInstance;Fila;Match\n';
+        var csv = 'Número;Data Chegada;Última Movimentação;idProcesso;idTaskInstance;Fila;Etiquetas;Match\n';
         filtrados.forEach(function(p) {
           var fmtCsvData = function(ts) { if (!ts) return ''; return new Date(ts).toLocaleDateString('pt-BR'); };
-          csv += (p.numero||'') + ';' + fmtCsvData(p.dataChegada) + ';' + fmtCsvData(p.ultimoMovimento) + ';' + (p.idProcesso||'') + ';' + (p.idTaskInstance||'') + ';' + (p.fila||'') + ';' + matchLabel + '\n';
+          var etiquetasTxt = (p.etiquetas || []).join(', ');
+          csv += (p.numero||'') + ';' + fmtCsvData(p.dataChegada) + ';' + fmtCsvData(p.ultimoMovimento) + ';' + (p.idProcesso||'') + ';' + (p.idTaskInstance||'') + ';' + (p.fila||'') + ';"' + etiquetasTxt.replace(/"/g,'""') + '";' + matchLabel + '\n';
         });
         var blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
         var url = URL.createObjectURL(blob);
