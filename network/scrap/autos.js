@@ -5,32 +5,56 @@
 
 var AutosScrap = (function() {
 
-  // Extrai polo ativo e passivo com advogados do HTML dos autos
-  // Retorna: { pessoasAtivo: [...], pessoasPassivo: [...], advogados: [...] }
+  // Normaliza p/ maiúsculas sem acento (casamento robusto de tipos)
+  function semAcento(s) {
+    return (s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  }
+
+  // Classifica um representante pelo título do ícone + texto:
+  // 'advogado' | 'procurador' | 'defensor' | 'mp' | 'outro'
+  // O PJe usa <i title="Representante"> p/ advogado, e "Procuradoria",
+  // "Ministério Público", "Defensoria" para os demais representantes.
+  function classificarRep(tipoIco, txt) {
+    var t = semAcento(tipoIco + ' ' + txt);
+    if (t.indexOf('DEFENSOR') !== -1) return 'defensor';
+    if (t.indexOf('MINISTERIO PUBLICO') !== -1 || t.indexOf('PROMOTOR') !== -1) return 'mp';
+    if (t.indexOf('PROCURADOR') !== -1) return 'procurador';
+    if (t.indexOf('OAB') !== -1 || t.indexOf('ADVOGADO') !== -1) return 'advogado';
+    return 'outro';
+  }
+
+  // Extrai polo ativo e passivo com representantes do HTML dos autos.
+  // Pessoa: { nome, advogados:[..], representantes:[{tipo, texto, titulo}] }
+  // Retorna: { pessoasAtivo, pessoasPassivo, advogados (lista plana p/ compat) }
   function extrairPolos(html) {
     var doc = new DOMParser().parseFromString(html, 'text/html');
 
     function extrairPolo(id) {
       var container = doc.getElementById(id);
       if (!container) return [];
-      var pessoas = [];
       var tbodyEl = container.querySelector('tbody');
       if (!tbodyEl) return [];
+      var pessoas = [];
       var rows = tbodyEl.querySelectorAll('tr');
       rows.forEach(function(row) {
         if (row.querySelector('th')) return;
         var spanPrincipal = row.querySelector('td > span:first-child span, td > span:first-child');
         if (!spanPrincipal) return;
         var nomeCompleto = (spanPrincipal.textContent || '').trim();
-        var advogados = [];
-        var trees = row.querySelectorAll('ul.tree li small');
-        trees.forEach(function(small) {
+        var representantes = [];
+        var vistos = {};
+        row.querySelectorAll('ul.tree li small').forEach(function(small) {
           var txt = (small.textContent || '').trim();
-          if (txt && (txt.toUpperCase().indexOf('OAB') !== -1 || txt.toUpperCase().indexOf('ADVOGADO') !== -1)) {
-            if (advogados.indexOf(txt) === -1) advogados.push(txt);
-          }
+          if (!txt || vistos[txt]) return;
+          vistos[txt] = true;
+          var ico = small.querySelector('i');
+          var tipoIco = ico ? (ico.getAttribute('title') || '').trim() : '';
+          representantes.push({ tipo: classificarRep(tipoIco, txt), texto: txt, titulo: tipoIco });
         });
-        pessoas.push({ nome: nomeCompleto, advogados: advogados });
+        var advogados = representantes
+          .filter(function(r){ return r.tipo === 'advogado'; })
+          .map(function(r){ return r.texto; });
+        pessoas.push({ nome: nomeCompleto, advogados: advogados, representantes: representantes });
       });
       return pessoas;
     }

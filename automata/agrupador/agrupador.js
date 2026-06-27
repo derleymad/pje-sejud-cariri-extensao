@@ -74,26 +74,34 @@ async function abrirAutosNovaAba(idProcesso, idTaskInstance, numero) {
 
 var AGR_ICON_USER = '<svg class="agr-i" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
 var AGR_ICON_BRIEFASE = '<svg class="agr-i" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>';
+var AGR_ICON_BUILDING = '<svg class="agr-i" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"/></svg>';
+var AGR_ICON_SHIELD = '<svg class="agr-i" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>';
+var AGR_ICON_SCALE = '<svg class="agr-i" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M5 7h14M7 7l-3 7a3 3 0 0 0 6 0L7 7zm10 0l-3 7a3 3 0 0 0 6 0l-3-7zM5 21h14"/></svg>';
 
-// Status dos advogados de um polo: 'all' | 'some' | 'none' | 'empty' | 'unknown'
-function poloStatusAdv(lista) {
+// A pessoa tem alguma representação (advogado, procurador, defensor ou MP)?
+function poloTemRep(p) {
+  if (p && p.representantes && p.representantes.length) return true;
+  if (p && p.advogados && p.advogados.length) return true; // compat dados antigos
+  return false;
+}
+
+// Status da representação de um polo: 'all' | 'some' | 'none' | 'empty' | 'unknown'
+function poloStatusRep(lista) {
   if (!lista) return 'unknown';        // sem dados (ainda não carregado)
   if (!lista.length) return 'empty';   // polo existe mas vazio
-  var comAdv = 0;
-  for (var i = 0; i < lista.length; i++) {
-    if (lista[i].advogados && lista[i].advogados.length) comAdv++;
-  }
-  if (comAdv === lista.length) return 'all';
-  if (comAdv === 0) return 'none';
+  var comRep = 0;
+  for (var i = 0; i < lista.length; i++) { if (poloTemRep(lista[i])) comRep++; }
+  if (comRep === lista.length) return 'all';
+  if (comRep === 0) return 'none';
   return 'some';
 }
 
-// Pill compacto de status do polo (A/P). Cor + símbolo + letra + title (a11y).
+// Pill de status do polo. Cor + símbolo + letra + title (a11y).
 function renderPoloStatusPill(status, letra, nomePolo) {
   var map = {
-    all:     { cls: 'agr-polo-ok',      sym: '✓', txt: 'todos com advogado' },
-    some:    { cls: 'agr-polo-warn',    sym: '⚠', txt: 'algum sem advogado' },
-    none:    { cls: 'agr-polo-none',    sym: '✕', txt: 'nenhum com advogado' },
+    all:     { cls: 'agr-polo-ok',      sym: '✓', txt: 'todos com representação' },
+    some:    { cls: 'agr-polo-warn',    sym: '⚠', txt: 'algum sem representação' },
+    none:    { cls: 'agr-polo-none',    sym: '✕', txt: 'nenhum com representação' },
     empty:   { cls: 'agr-polo-unknown', sym: '—', txt: 'polo vazio' },
     unknown: { cls: 'agr-polo-unknown', sym: '—', txt: 'clique para carregar' }
   };
@@ -103,44 +111,64 @@ function renderPoloStatusPill(status, letra, nomePolo) {
          '<b>' + letra + '</b>' + m.sym + '</span>';
 }
 
-// Card de uma pessoa (nome + advogados).
-function renderPoloPessoaCard(p, corBorda, corBg) {
-  var advHtml = '';
-  if (p.advogados && p.advogados.length) {
-    advHtml = '<div class="agr-polo-advs">';
-    p.advogados.forEach(function(a) {
-      advHtml += '<div class="agr-polo-adv">' + AGR_ICON_BRIEFASE + '<span>' + a + '</span></div>';
-    });
-    advHtml += '</div>';
+// Ícone + label por tipo de representante.
+var REP_TIPOS = {
+  advogado:   { ic: AGR_ICON_BRIEFASE,  cor: '#7c3aed', lbl: 'Advogado' },
+  procurador: { ic: AGR_ICON_BUILDING,  cor: '#0284c7', lbl: 'Procuradoria' },
+  defensor:   { ic: AGR_ICON_SHIELD,    cor: '#0d9488', lbl: 'Defensoria' },
+  mp:         { ic: AGR_ICON_SCALE,     cor: '#b45309', lbl: 'Ministério Público' },
+  outro:      { ic: AGR_ICON_USER,      cor: '#64748b', lbl: 'Representante' }
+};
+function renderRepresentante(r) {
+  var i = REP_TIPOS[r.tipo] || REP_TIPOS.outro;
+  return '<div class="agr-polo-rep">' + i.ic +
+           '<span><b style="color:' + i.cor + '">' + i.lbl + '</b> ' +
+           '<span class="agr-polo-rep-txt">' + r.texto + '</span></span></div>';
+}
+
+// Card de uma pessoa (nome + representantes de qualquer tipo).
+function renderPoloPessoaCard(p, corBorda) {
+  var reps = (p.representantes && p.representantes.length) ? p.representantes
+           : (p.advogados || []).map(function(a){ return { tipo: 'advogado', texto: a }; });
+  var repHtml;
+  if (reps.length) {
+    repHtml = '<div class="agr-polo-reps">';
+    reps.forEach(function(r){ repHtml += renderRepresentante(r); });
+    repHtml += '</div>';
   } else {
-    advHtml = '<div class="agr-polo-semadv">sem advogado</div>';
+    repHtml = '<div class="agr-polo-semrep">sem representação</div>';
   }
   return '<div class="agr-polo-card" style="border-left-color:' + corBorda + '">' +
            '<div class="agr-polo-nome">' + AGR_ICON_USER + '<span>' + (p.nome || '—') + '</span></div>' +
-           advHtml +
+           repHtml +
          '</div>';
 }
 
-// Painel de detalhe dos polos (topbar com status + 2 colunas: ativo / passivo).
+// Painel de detalhe dos polos (cabeçalho forte + 2 colunas: ativo / passivo).
 function renderPoloPanel(proc, polos) {
   if (!polos) {
     return '<div class="agr-polo-empty">Não foi possível carregar os polos deste processo.</div>';
   }
   var ativo = polos.pessoasAtivo || [];
   var passivo = polos.pessoasPassivo || [];
-  var ativoAdv = ativo.filter(function(p){ return p.advogados && p.advogados.length; }).length;
-  var passivoAdv = passivo.filter(function(p){ return p.advogados && p.advogados.length; }).length;
+  var ativoRep = ativo.filter(poloTemRep).length;
+  var passivoRep = passivo.filter(poloTemRep).length;
   var cardsAtivo = ativo.length
     ? ativo.map(function(p){ return renderPoloPessoaCard(p, '#10b981'); }).join('')
-    : '<div class="agr-polo-semadv">Nenhuma parte no polo ativo.</div>';
+    : '<div class="agr-polo-semrep">Nenhuma parte no polo ativo.</div>';
   var cardsPassivo = passivo.length
     ? passivo.map(function(p){ return renderPoloPessoaCard(p, '#f97316'); }).join('')
-    : '<div class="agr-polo-semadv">Nenhuma parte no polo passivo.</div>';
+    : '<div class="agr-polo-semrep">Nenhuma parte no polo passivo.</div>';
   return '' +
-    '<div class="agr-polo-topbar">' +
-      '<span class="agr-polo-topnum">' + (proc.numero || '') + '</span>' +
-      '<span class="agr-polo-topstat">' + renderPoloStatusPill(poloStatusAdv(ativo), 'A', 'ativo') + '<small>ativo ' + ativoAdv + '/' + ativo.length + ' c/ advogado</small></span>' +
-      '<span class="agr-polo-topstat">' + renderPoloStatusPill(poloStatusAdv(passivo), 'P', 'passivo') + '<small>passivo ' + passivoAdv + '/' + passivo.length + ' c/ advogado</small></span>' +
+    '<div class="agr-polo-header">' +
+      '<div class="agr-polo-header-left">' +
+        '<span class="agr-polo-header-tag">POLOS DO PROCESSO</span>' +
+        '<span class="agr-polo-header-num">' + (proc.numero || '') + '</span>' +
+      '</div>' +
+      '<div class="agr-polo-header-stats">' +
+        '<span class="agr-polo-header-stat">' + renderPoloStatusPill(poloStatusRep(ativo), 'Ativo', 'ativo') + '<small>' + ativoRep + '/' + ativo.length + ' representados</small></span>' +
+        '<span class="agr-polo-header-stat">' + renderPoloStatusPill(poloStatusRep(passivo), 'Passivo', 'passivo') + '<small>' + passivoRep + '/' + passivo.length + ' representados</small></span>' +
+      '</div>' +
     '</div>' +
     '<div class="agr-polo-grid">' +
       '<div class="agr-polo-col">' +
@@ -282,8 +310,8 @@ function renderizarTabelaAgrupador(overlay, processos, funcLabel, scanning) {
       : '<span style="font-size:10px;color:#cbd5e1">—</span>';
     var polos = p._polos;
     var polosCell = '<div class="agr-polos-cell">' +
-      renderPoloStatusPill(poloStatusAdv(polos && polos.pessoasAtivo), 'A', 'ativo') +
-      renderPoloStatusPill(poloStatusAdv(polos && polos.pessoasPassivo), 'P', 'passivo') +
+      renderPoloStatusPill(poloStatusRep(polos && polos.pessoasAtivo), 'A', 'ativo') +
+      renderPoloStatusPill(poloStatusRep(polos && polos.pessoasPassivo), 'P', 'passivo') +
       '</div>';
     rows += '<tr class="agr-row' + visitado + '"><td style="color:#94a3b8;font-size:11px;white-space:nowrap"><button class="agr-expand-btn" data-action="expand" data-numero="'+p.numero+'" aria-expanded="false" aria-label="Ver polos de '+p.numero+'" title="Ver polos">'+ICON_CHEVRON+'</button>'+globalIdx+'</td><td class="mono">'+p.numero+'</td><td style="font-size:11px;color:#64748b;white-space:nowrap">'+dataChegada+'</td><td style="font-size:11px;color:#64748b;white-space:nowrap">'+ultMov+'</td><td style="font-size:11px;color:#64748b;line-height:1.3">'+filaTxt+'</td><td>'+etiquetasHtml+'</td><td style="text-align:center">'+polosCell+'</td><td style="text-align:center;white-space:nowrap">'+acoesHTML+'</td></tr>';
   }
@@ -844,12 +872,15 @@ function injetarEstilosAgrupador() {
 .agr-polo-none{background:#fef2f2;color:#dc2626;border-color:#fecaca}
 .agr-polo-unknown{background:#f8fafc;color:#94a3b8;border-color:#e2e8f0}
 .agr-detail>td{padding:0;border-bottom:1px solid #e2e8f0;background:#f8fafc}
-.agr-detail-cell{padding:14px 16px}
-.agr-polo-panel{border:1px solid #e2e8f0;border-radius:10px;background:#fff;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
-.agr-polo-topbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 14px;background:#f8fafc;border-bottom:1px solid #e2e8f0}
-.agr-polo-topnum{font-family:'SF Mono','Fira Code',monospace;font-size:12px;font-weight:700;color:#0f172a}
-.agr-polo-topstat{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#64748b}
-.agr-polo-topstat small{color:#94a3b8}
+.agr-detail-cell{padding:18px}
+.agr-polo-panel{border:1px solid #e2e8f0;border-radius:12px;background:#fff;overflow:hidden;box-shadow:0 4px 14px rgba(15,23,42,.08);margin:4px 0 10px}
+.agr-polo-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 16px;background:linear-gradient(135deg,#0f172a,#1e3a5f);color:#fff}
+.agr-polo-header-left{display:flex;align-items:center;gap:10px;min-width:0}
+.agr-polo-header-tag{font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#cbd5e1;background:rgba(255,255,255,.12);padding:3px 8px;border-radius:5px;white-space:nowrap}
+.agr-polo-header-num{font-family:'SF Mono','Fira Code',monospace;font-size:13px;font-weight:700;color:#fff;overflow:hidden;text-overflow:ellipsis}
+.agr-polo-header-stats{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.agr-polo-header-stat{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#cbd5e1}
+.agr-polo-header-stat small{color:#94a3b8}
 .agr-polo-grid{display:grid;grid-template-columns:1fr 1fr}
 @media(max-width:760px){.agr-polo-grid{grid-template-columns:1fr}}
 .agr-polo-col{padding:14px}
@@ -863,10 +894,12 @@ function injetarEstilosAgrupador() {
 .agr-polo-nome{display:flex;align-items:flex-start;gap:6px;font-size:12px;font-weight:600;color:#0f172a;line-height:1.35}
 .agr-i{flex-shrink:0;display:inline-flex}
 .agr-polo-nome .agr-i{color:#475569;margin-top:1px}
-.agr-polo-advs{margin-top:6px;display:flex;flex-direction:column;gap:3px}
-.agr-polo-adv{display:flex;align-items:flex-start;gap:5px;font-size:10.5px;color:#64748b;line-height:1.35}
-.agr-polo-adv .agr-i{color:#8b5cf6;margin-top:1px}
-.agr-polo-semadv{font-size:10.5px;color:#94a3b8;font-style:italic;margin-top:5px}
+.agr-polo-reps{margin-top:7px;display:flex;flex-direction:column;gap:4px}
+.agr-polo-rep{display:flex;align-items:flex-start;gap:6px;font-size:10.5px;line-height:1.4;padding:2px 0}
+.agr-polo-rep .agr-i{margin-top:1px}
+.agr-polo-rep>span{flex:1;min-width:0;color:#475569}
+.agr-polo-rep b{font-weight:700}
+.agr-polo-semrep{font-size:10.5px;color:#94a3b8;font-style:italic;margin-top:6px}
 .agr-polo-loading{padding:22px;text-align:center;font-size:12px;color:#64748b}
 .agr-polo-empty{padding:22px;text-align:center;font-size:12px;color:#94a3b8}
 
