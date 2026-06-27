@@ -68,6 +68,147 @@ async function abrirAutosNovaAba(idProcesso, idTaskInstance, numero) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════
+// POLOS (ativo/passivo) — indicador por linha + detalhe expansível
+// ═══════════════════════════════════════════════════════════
+
+// Status dos advogados de um polo: 'all' | 'some' | 'none' | 'empty' | 'unknown'
+function poloStatusAdv(lista) {
+  if (!lista) return 'unknown';        // sem dados (ainda não carregado)
+  if (!lista.length) return 'empty';   // polo existe mas vazio
+  var comAdv = 0;
+  for (var i = 0; i < lista.length; i++) {
+    if (lista[i].advogados && lista[i].advogados.length) comAdv++;
+  }
+  if (comAdv === lista.length) return 'all';
+  if (comAdv === 0) return 'none';
+  return 'some';
+}
+
+// Pill compacto de status do polo (A/P). Cor + símbolo + letra + title (a11y).
+function renderPoloStatusPill(status, letra, nomePolo) {
+  var map = {
+    all:     { cls: 'agr-polo-ok',      sym: '✓', txt: 'todos com advogado' },
+    some:    { cls: 'agr-polo-warn',    sym: '⚠', txt: 'algum sem advogado' },
+    none:    { cls: 'agr-polo-none',    sym: '✕', txt: 'nenhum com advogado' },
+    empty:   { cls: 'agr-polo-unknown', sym: '—', txt: 'polo vazio' },
+    unknown: { cls: 'agr-polo-unknown', sym: '—', txt: 'clique para carregar' }
+  };
+  var m = map[status] || map.unknown;
+  var title = 'Polo ' + nomePolo + ': ' + m.txt;
+  return '<span class="agr-polo-pill ' + m.cls + '" title="' + title + '" aria-label="' + title + '">' +
+         '<b>' + letra + '</b>' + m.sym + '</span>';
+}
+
+// Card de uma pessoa (nome + advogados). Réplica enxuta do analisador-polos.
+function renderPoloPessoaCard(p, corBorda, corBg) {
+  var advHtml = '';
+  if (p.advogados && p.advogados.length) {
+    advHtml = '<div class="agr-polo-advs">';
+    p.advogados.forEach(function(a) {
+      advHtml += '<div class="agr-polo-adv"><span class="agr-polo-adv-ico">💼</span><span>' + a + '</span></div>';
+    });
+    advHtml += '</div>';
+  } else {
+    advHtml = '<div class="agr-polo-semadv">(sem advogado)</div>';
+  }
+  return '<div class="agr-polo-card" style="border-left-color:' + corBorda + ';background:' + corBg + '">' +
+           '<div class="agr-polo-nome"><span class="agr-polo-user">👤</span><span>' + (p.nome || '—') + '</span></div>' +
+           advHtml +
+         '</div>';
+}
+
+// Painel de detalhe dos polos (2 colunas: ativo / passivo).
+function renderPoloPanel(proc, polos) {
+  if (!polos) {
+    return '<div class="agr-polo-empty">Não foi possível carregar os polos deste processo.</div>';
+  }
+  var ativo = polos.pessoasAtivo || [];
+  var passivo = polos.pessoasPassivo || [];
+  var ativoAdv = ativo.filter(function(p){ return p.advogados && p.advogados.length; }).length;
+  var passivoAdv = passivo.filter(function(p){ return p.advogados && p.advogados.length; }).length;
+  var cardsAtivo = ativo.length
+    ? ativo.map(function(p){ return renderPoloPessoaCard(p, '#10b981', '#f0fdf4'); }).join('')
+    : '<div class="agr-polo-semadv">(polo vazio)</div>';
+  var cardsPassivo = passivo.length
+    ? passivo.map(function(p){ return renderPoloPessoaCard(p, '#f97316', '#fff7ed'); }).join('')
+    : '<div class="agr-polo-semadv">(polo vazio)</div>';
+  return '' +
+    '<div class="agr-polo-resumo">' +
+      '<strong>' + (proc.numero || '') + '</strong> · ' +
+      '<span>' + ativo.length + ' no ativo (' + ativoAdv + ' c/ advogado)</span> · ' +
+      '<span>' + passivo.length + ' no passivo (' + passivoAdv + ' c/ advogado)</span>' +
+    '</div>' +
+    '<div class="agr-polo-grid">' +
+      '<div class="agr-polo-col">' +
+        '<div class="agr-polo-head agr-polo-head-ativo">POLO ATIVO (' + ativo.length + ')</div>' +
+        cardsAtivo +
+      '</div>' +
+      '<div class="agr-polo-col">' +
+        '<div class="agr-polo-head agr-polo-head-passivo">POLO PASSIVO (' + passivo.length + ')</div>' +
+        cardsPassivo +
+      '</div>' +
+    '</div>';
+}
+
+// Garante proc._polos: usa o que já veio do scan, ou busca on-demand (chave + autos).
+async function garantirPolos(proc) {
+  if (proc._polos) return proc._polos;
+  if (!proc.idProcesso || typeof ProcessosAPI === 'undefined' || !ProcessosAPI.getChaveAcesso) return null;
+  try {
+    var chave = await ProcessosAPI.getChaveAcesso(proc.idProcesso);
+    if (!chave) return null;
+    var autosHtml = await ProcessosAPI.fetchAutosHTML(proc.idProcesso, chave, proc.idTaskInstance);
+    if (!autosHtml) return null;
+    if (typeof AutosScrap !== 'undefined' && AutosScrap.extrairPolos) {
+      proc._polos = AutosScrap.extrairPolos(autosHtml);
+    }
+    return proc._polos || null;
+  } catch(e) {
+    console.warn('[Agrupador] garantirPolos falhou p/ ' + proc.numero + ': ' + e.message);
+    return null;
+  }
+}
+
+// Expandir/recolher a linha de detalhe dos polos.
+function toggleExpandRow(btn, overlay) {
+  var numero = btn.getAttribute('data-numero');
+  var tr = btn.closest('tr');
+  if (!tr) return;
+  var existing = tr.nextElementSibling;
+  if (existing && existing.classList.contains('agr-detail') && existing.getAttribute('data-numero') === numero) {
+    existing.remove();
+    btn.setAttribute('aria-expanded', 'false');
+    btn.classList.remove('agr-expand-open');
+    return;
+  }
+  btn.setAttribute('aria-expanded', 'true');
+  btn.classList.add('agr-expand-open');
+  var proc = overlay._agrProcMap ? overlay._agrProcMap[numero] : null;
+  var temPolos = !!(proc && proc._polos);
+  var detail = document.createElement('tr');
+  detail.className = 'agr-detail';
+  detail.setAttribute('data-numero', numero);
+  detail.innerHTML = '<td colspan="8" class="agr-detail-cell"><div class="agr-polo-panel">' +
+    (temPolos ? renderPoloPanel(proc, proc._polos) : '<div class="agr-polo-loading">⏳ Carregando polos…</div>') +
+    '</div></td>';
+  tr.parentNode.insertBefore(detail, tr.nextSibling);
+  if (!temPolos && proc) {
+    garantirPolos(proc).then(function(polos) {
+      var panel = detail.querySelector('.agr-polo-panel');
+      if (panel && document.body.contains(detail)) panel.innerHTML = renderPoloPanel(proc, polos);
+    });
+  }
+}
+
+// Classe do botão de ação com estado "já abriu" (✓ verde) e "último aberto" (anel azul).
+function actBtnClass(action, numero) {
+  var key = numero + '|' + action;
+  var opened = window._agrOpened && window._agrOpened[key];
+  var last = window._agrLastKey === key;
+  return 'pje-btn-agr pje-btn-agr-outline agr-act' + (opened ? ' agr-act-opened' : '') + (last ? ' agr-act-last' : '');
+}
+
 function renderizarTabelaAgrupador(overlay, processos, funcLabel, scanning) {
   var tbody = overlay.querySelector('#pje-agr-table-body');
   var titleEl = overlay.querySelector('#pje-agr-results-title');
@@ -98,6 +239,10 @@ function renderizarTabelaAgrupador(overlay, processos, funcLabel, scanning) {
   var start = _agrPage * _agrPageSize;
   var pagina = sorted.slice(start, start + _agrPageSize);
 
+  // Mapa numero→proc (para o handler de expandir achar o objeto da linha)
+  overlay._agrProcMap = {};
+  pagina.forEach(function(p){ overlay._agrProcMap[p.numero] = p; });
+
   if (titleEl) {
     var titleExtra = _agrFilaFilter !== 'todas' ? ' · Filtro: ' + _agrFilaFilter.substring(0, 40) : '';
     titleEl.textContent = 'Agrupado por ' + funcLabel + ' (' + filtrados.length + ' processo' + (filtrados.length>1?'s':'') + ')' + (scanning ? ' [ESCANEANDO...]' : '') + titleExtra;
@@ -107,6 +252,7 @@ function renderizarTabelaAgrupador(overlay, processos, funcLabel, scanning) {
   var ICON_ABRIR = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
   var ICON_AUTOS = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
   var ICON_DECISAO = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>';
+  var ICON_CHEVRON = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
 
   var rows = '';
   for (var i = 0; i < pagina.length; i++) {
@@ -114,14 +260,14 @@ function renderizarTabelaAgrupador(overlay, processos, funcLabel, scanning) {
     var globalIdx = start + i + 1;
     var abrirUrl = p.idTaskInstance ? getMovimentarUrl(p.idProcesso, p.idTaskInstance) : '';
     var visitado = window._agrVisited[p.numero] ? ' agr-visited' : '';
-    var btnAutos = '<button class="pje-btn-agr pje-btn-agr-outline" style="padding:4px 8px;font-size:11px;margin-left:4px" data-action="autos" data-numero="' + p.numero + '" data-id-processo="' + (p.idProcesso||'') + '" data-id-task="' + (p.idTaskInstance||'') + '" title="Ver Autos Digitais">' + ICON_AUTOS + '</button>';
+    var btnAutos = '<button class="' + actBtnClass('autos', p.numero) + '" style="padding:4px 8px;font-size:11px;margin-left:4px" data-action="autos" data-numero="' + p.numero + '" data-id-processo="' + (p.idProcesso||'') + '" data-id-task="' + (p.idTaskInstance||'') + '" title="Ver Autos Digitais">' + ICON_AUTOS + '</button>';
     var btnDecisao = p._linkDecisao
-      ? '<button class="pje-btn-agr pje-btn-agr-outline" style="padding:4px 8px;font-size:11px;margin-left:4px" data-action="decisao" data-url="' + String(p._linkDecisao).replace(/"/g,'&quot;') + '" data-numero="' + p.numero + '" title="Abrir última decisão">' + ICON_DECISAO + '</button>'
+      ? '<button class="' + actBtnClass('decisao', p.numero) + '" style="padding:4px 8px;font-size:11px;margin-left:4px" data-action="decisao" data-url="' + String(p._linkDecisao).replace(/"/g,'&quot;') + '" data-numero="' + p.numero + '" title="Abrir última decisão">' + ICON_DECISAO + ' Ver autos</button>'
       : '';
-    var acoesHTML = abrirUrl
-      ? '<button class="pje-btn-agr pje-btn-agr-outline" style="padding:4px 8px;font-size:11px" data-action="abrir" data-url="' + abrirUrl.replace(/"/g,'&quot;') + '" data-numero="' + p.numero + '">' + ICON_ABRIR + ' Abrir</button>' + btnAutos + btnDecisao
-      : '<span style="font-size:11px;color:#94a3b8">sem tarefa</span>' + btnAutos + btnDecisao;
-    var badge = p.idTaskInstance ? '<span class="agr-badge agr-badge-success">✓ Pronto</span>' : '<span class="agr-badge agr-badge-warning">⚠ Sem task</span>';
+    var btnAbrir = abrirUrl
+      ? '<button class="' + actBtnClass('abrir', p.numero) + '" style="padding:4px 8px;font-size:11px" data-action="abrir" data-url="' + abrirUrl.replace(/"/g,'&quot;') + '" data-numero="' + p.numero + '" title="Abrir/Movimentar">' + ICON_ABRIR + ' Abrir</button>'
+      : '<span style="font-size:11px;color:#94a3b8">sem tarefa</span>';
+    var acoesHTML = btnAbrir + btnAutos + btnDecisao;
     var fmtData = function(ts) { if (!ts) return '—'; return new Date(ts).toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit', year:'numeric'}); };
     var dataChegada = fmtData(p.dataChegada);
     var ultMov = fmtData(p.ultimoMovimento);
@@ -129,25 +275,42 @@ function renderizarTabelaAgrupador(overlay, processos, funcLabel, scanning) {
       ? '<span style="font-weight:600;color:#dc2626">' + p.filas.length + ' filas</span><br><span style="font-size:9px;color:#94a3b8">' + p.filas.map(function(f){ return f.substring(0,40); }).join('<br>') + '</span>'
       : (p.fila||'').substring(0,50);
     var etiquetasHtml = (p.etiquetas && p.etiquetas.length)
-      ? p.etiquetas.map(function(e) { return '<span style="display:inline-block;font-size:9px;padding:1px 6px;border-radius:4px;background:#f1f5f9;color:#475569;margin:1px">' + e + '</span>'; }).join(' ')
+      ? p.etiquetas.map(function(e) { return '<span class="agr-etiqueta">' + e + '</span>'; }).join(' ')
       : '<span style="font-size:10px;color:#cbd5e1">—</span>';
-    rows += '<tr class="agr-row' + visitado + '"><td style="color:#94a3b8;font-size:11px">'+globalIdx+'</td><td class="mono">'+p.numero+'</td><td style="font-size:11px;color:#64748b;white-space:nowrap">'+dataChegada+'</td><td style="font-size:11px;color:#64748b;white-space:nowrap">'+ultMov+'</td><td style="font-size:11px;color:#64748b;line-height:1.3">'+filaTxt+'</td><td style="font-size:10px">'+etiquetasHtml+'</td><td>'+badge+'</td><td style="text-align:center;white-space:nowrap">'+acoesHTML+'</td></tr>';
+    var polos = p._polos;
+    var polosCell = '<div class="agr-polos-cell">' +
+      renderPoloStatusPill(poloStatusAdv(polos && polos.pessoasAtivo), 'A', 'ativo') +
+      renderPoloStatusPill(poloStatusAdv(polos && polos.pessoasPassivo), 'P', 'passivo') +
+      '</div>';
+    rows += '<tr class="agr-row' + visitado + '"><td style="color:#94a3b8;font-size:11px;white-space:nowrap"><button class="agr-expand-btn" data-action="expand" data-numero="'+p.numero+'" aria-expanded="false" aria-label="Ver polos de '+p.numero+'" title="Ver polos">'+ICON_CHEVRON+'</button>'+globalIdx+'</td><td class="mono">'+p.numero+'</td><td style="font-size:11px;color:#64748b;white-space:nowrap">'+dataChegada+'</td><td style="font-size:11px;color:#64748b;white-space:nowrap">'+ultMov+'</td><td style="font-size:11px;color:#64748b;line-height:1.3">'+filaTxt+'</td><td>'+etiquetasHtml+'</td><td style="text-align:center">'+polosCell+'</td><td style="text-align:center;white-space:nowrap">'+acoesHTML+'</td></tr>';
   }
   tbody.innerHTML = rows;
 
-  // Event delegation: Abrir / Ver Autos / Abrir última decisão
+  // Event delegation: Expandir polos / Abrir / Autos / Decisão
   tbody.querySelectorAll('button[data-action]').forEach(function(btn) {
     btn.addEventListener('click', async function(e) {
       e.stopPropagation();
       var action = btn.getAttribute('data-action');
       var numero = btn.getAttribute('data-numero');
+
+      // ▸ Expandir/recolher polos (não conta como "abrir")
+      if (action === 'expand') { toggleExpandRow(btn, overlay); return; }
+
+      // Feedback visual: marca "já abri" (✓ verde) + "último aberto" (anel azul)
+      if (!window._agrOpened) window._agrOpened = {};
+      var key = numero + '|' + action;
+      window._agrOpened[key] = true;
+      overlay.querySelectorAll('.agr-act-last').forEach(function(b){ b.classList.remove('agr-act-last'); });
+      btn.classList.add('agr-act-opened', 'agr-act-last');
+      window._agrLastKey = key;
+
       if (action === 'abrir') {
-        window._agrVisited[numero] = true;            // feedback visual: marca a linha
+        window._agrVisited[numero] = true;            // marca a linha inteira de verde
         var tr = btn.closest('tr'); if (tr) tr.classList.add('agr-visited');
         window.open(btn.getAttribute('data-url'), '_blank');
       } else if (action === 'autos') {
-        // Abre os Autos Digitais numa NOVA ABA, autenticados com a chave de
-        // acesso (ca) — sem ela o PJe devolve "Sem permissão" (error.seam).
+        // Autos numa NOVA ABA autenticados com a chave de acesso (ca) —
+        // sem ela o PJe devolve "Sem permissão" (error.seam).
         var idProc = btn.getAttribute('data-id-processo');
         var idTask = btn.getAttribute('data-id-task') || '';
         await abrirAutosNovaAba(idProc, idTask, numero);
@@ -553,6 +716,8 @@ function _agrLimparRuntime() {
   try { chrome.runtime.sendMessage({ type: 'cancelAllFetch' }, function(){}); } catch(e){}
   window._agrScanRuntime = null;
   window._agrVisited = {};   // limpa marcação de processos abertos
+  window._agrOpened = {};    // limpa "já abriu" dos botões de ação
+  window._agrLastKey = null; // limpa "último aberto"
   _agrProcessosCache = {};
   limparEstadoAgrupador();
 }
@@ -661,6 +826,52 @@ function injetarEstilosAgrupador() {
 .agr-tag{display:inline-flex;align-items:center;gap:5px;padding:3px 4px 3px 10px;border-radius:14px;background:linear-gradient(135deg,#1e3a5f,#0f172a);color:#fff;font-size:11px;font-weight:600;line-height:1;white-space:nowrap;animation:modalIn .15s ease}
 .agr-tag-x{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border:none;border-radius:50%;background:rgba(255,255,255,.2);color:#fff;font-size:13px;line-height:1;cursor:pointer;font-family:inherit;padding:0;transition:background .12s}
 .agr-tag-x:hover{background:rgba(255,255,255,.4)}
+
+/* ── Polos: indicador por linha + detalhe expansível ── */
+.agr-expand-btn{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:none;background:transparent;color:#94a3b8;cursor:pointer;border-radius:4px;transition:transform .15s,background .15s,color .15s;vertical-align:middle;margin-right:2px;padding:0}
+.agr-expand-btn:hover{background:#e2e8f0;color:#0f172a}
+.agr-expand-btn:focus-visible{outline:2px solid #3b82f6;outline-offset:1px}
+.agr-expand-btn.agr-expand-open{transform:rotate(90deg);color:#0f172a}
+.agr-polos-cell{display:flex;gap:3px;justify-content:center;align-items:center}
+.agr-polo-pill{display:inline-flex;align-items:center;gap:1px;padding:1px 5px;border-radius:6px;font-size:10px;font-weight:700;line-height:1.4;border:1px solid transparent;white-space:nowrap}
+.agr-polo-pill b{font-weight:800;opacity:.85}
+.agr-polo-ok{background:#f0fdf4;color:#059669;border-color:#bbf7d0}
+.agr-polo-warn{background:#fffbeb;color:#d97706;border-color:#fde68a}
+.agr-polo-none{background:#fef2f2;color:#dc2626;border-color:#fecaca}
+.agr-polo-unknown{background:#f8fafc;color:#94a3b8;border-color:#e2e8f0}
+.agr-detail>td{padding:0;border-bottom:1px solid #e2e8f0;background:#fafafa}
+.agr-detail-cell{padding:14px 18px}
+.agr-polo-panel{border:1px solid #e2e8f0;border-radius:10px;background:#fff;overflow:hidden}
+.agr-polo-resumo{padding:10px 14px;font-size:12px;color:#475569;border-bottom:1px solid #f1f5f9;background:#f8fafc;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.agr-polo-resumo strong{font-family:'SF Mono','Fira Code',monospace;color:#0f172a}
+.agr-polo-grid{display:grid;grid-template-columns:1fr 1fr}
+@media(max-width:760px){.agr-polo-grid{grid-template-columns:1fr}}
+.agr-polo-col{padding:12px 14px}
+.agr-polo-col+.agr-polo-col{border-left:1px solid #f1f5f9}
+.agr-polo-head{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:4px 10px;border-radius:6px;margin-bottom:8px;display:inline-block}
+.agr-polo-head-ativo{background:#f0fdf4;color:#059669}
+.agr-polo-head-passivo{background:#fff7ed;color:#ea580c}
+.agr-polo-card{border-left:3px solid #e2e8f0;border-radius:0 8px 8px 0;padding:8px 10px;margin-bottom:6px}
+.agr-polo-card:last-child{margin-bottom:0}
+.agr-polo-nome{display:flex;align-items:flex-start;gap:6px;font-size:12px;font-weight:600;color:#0f172a;line-height:1.35}
+.agr-polo-user{flex-shrink:0}
+.agr-polo-advs{margin-top:5px;display:flex;flex-direction:column;gap:2px}
+.agr-polo-adv{display:flex;align-items:flex-start;gap:5px;font-size:10px;color:#64748b;line-height:1.35}
+.agr-polo-adv-ico{flex-shrink:0}
+.agr-polo-semadv{font-size:10px;color:#94a3b8;font-style:italic;margin-top:4px}
+.agr-polo-loading{padding:18px;text-align:center;font-size:12px;color:#64748b}
+.agr-polo-empty{padding:18px;text-align:center;font-size:12px;color:#94a3b8}
+
+/* ── Etiquetas (badges shadcn) ── */
+.agr-etiqueta{display:inline-flex;align-items:center;font-size:10px;font-weight:500;padding:2px 8px;border-radius:6px;border:1px solid #e2e8f0;background:#fff;color:#475569;margin:1px;line-height:1.4;white-space:nowrap;transition:border-color .15s,color .15s}
+.agr-etiqueta:hover{border-color:#cbd5e1;color:#0f172a}
+
+/* ── Botões de ação: "já abri" (✓) + "último aberto" (anel azul) ── */
+.agr-act{position:relative;transition:background .15s,border-color .15s,box-shadow .15s,color .15s}
+.agr-act-opened{border-color:#10b981;background:#ecfdf5;color:#059669}
+.agr-act-opened:hover{border-color:#10b981;background:#d1fae5;color:#047857}
+.agr-act-opened::before{content:'✓';position:absolute;top:-5px;left:-5px;width:13px;height:13px;background:#10b981;color:#fff;border-radius:50%;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;line-height:1;z-index:2}
+.agr-act-last{box-shadow:0 0 0 2px #3b82f6;z-index:1}
 `);
   document.head.appendChild(s);
 }
@@ -808,9 +1019,9 @@ function abrirAgrupadorModal() {
             '</div>' +
             '<div style="overflow-x:auto" id="pje-agr-table-wrap">' +
               '<table class="agr-table" style="width:100%">' +
-                '<thead><tr><th style="width:40px">#</th><th>Número do Processo</th><th style="width:100px">Data Chegada</th><th style="width:100px">Últ. Movim.</th><th style="width:160px">Fila</th><th style="width:180px">Etiquetas</th><th style="width:80px">Status</th><th style="width:150px">Ações</th></tr></thead>' +
+                '<thead><tr><th style="width:40px">#</th><th>Número do Processo</th><th style="width:100px">Data Chegada</th><th style="width:100px">Últ. Movim.</th><th style="width:160px">Fila</th><th style="width:180px">Etiquetas</th><th style="width:92px">Polos</th><th style="width:150px">Ações</th></tr></thead>' +
                 '<tbody id="pje-agr-table-body">' +
-                  '<tr><td colspan="5" style="text-align:center;padding:40px;color:#94a3b8">Nenhum resultado ainda. Selecione filas e clique em <strong>Analisar Processos</strong>.</td></tr>' +
+                  '<tr><td colspan="8" style="text-align:center;padding:40px;color:#94a3b8">Nenhum resultado ainda. Selecione filas e clique em <strong>Analisar Processos</strong>.</td></tr>' +
                 '</tbody>' +
               '</table>' +
             '</div>' +
@@ -1118,6 +1329,10 @@ function abrirAgrupadorModal() {
                 if (dec && dec.ok && dec.html) {
                   htmlAlvo = dec.html;
                   proc._linkDecisao = dec.link || '';
+                  // Polos saem de graça do mesmo HTML dos autos já baixado
+                  if (dec.autosHtml && typeof AutosScrap !== 'undefined' && AutosScrap.extrairPolos) {
+                    try { proc._polos = AutosScrap.extrairPolos(dec.autosHtml); } catch(e) {}
+                  }
                 } else {
                   console.warn('[Agrupador] Autos sem decisão (' + (dec && dec.motivo) + ') p/ ' + proc.numero + ' — usando página de movimentar');
                   htmlAlvo = await fetchPaginaHTMLviaFetch(getMovimentarUrlFetch(proc.idProcesso, proc.idTaskInstance), cancelFlag);
@@ -1235,6 +1450,9 @@ function abrirAgrupadorModal() {
                   if (decM && decM.ok && decM.html) {
                     htmlAlvoM = decM.html;
                     procM._linkDecisao = decM.link || '';
+                    if (decM.autosHtml && typeof AutosScrap !== 'undefined' && AutosScrap.extrairPolos) {
+                      try { procM._polos = AutosScrap.extrairPolos(decM.autosHtml); } catch(e) {}
+                    }
                   } else {
                     console.warn('[Agrupador] Autos sem decisão (' + (decM && decM.motivo) + ') p/ ' + procM.numero + ' — usando página de movimentar');
                     htmlAlvoM = await fetchPaginaHTMLviaFetch(getMovimentarUrlFetch(procM.idProcesso, procM.idTaskInstance), cancelFlag);
