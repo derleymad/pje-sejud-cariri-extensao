@@ -161,4 +161,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   return true; // assíncrono
 });
 
+// ═══════════════════════════════════════════════════════════
+// Handler: openTab — abre uma NOVA ABA com os cookies da sessão.
+// Usado pelo agrupador pra abrir Autos Digitais autenticados.
+// Vai pelo background (chrome.tabs.create) e não esbarra no bloqueador de
+// popup — o window.open após um await perde o gesto do usuário e é barrado.
+// ═══════════════════════════════════════════════════════════
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.type !== 'openTab') return;
+  chrome.tabs.create({ url: request.url }, function(tab) {
+    sendResponse({ ok: !!tab });
+  });
+  return true;
+});
+
 console.log('[PJe Sejud] Background worker ativo (fetch + retry + circuit breaker + apiCall)');

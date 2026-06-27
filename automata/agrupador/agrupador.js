@@ -43,6 +43,31 @@ var _agrEtiquetaFilter = 'todas';
 // Modo de visualização: false = processos com match, true = multi-fila
 var _agrShowingMultiFila = false;
 
+// Abre os Autos Digitais numa NOVA ABA autenticados com a chave de acesso (ca).
+// O PJe exige a chave — a URL só com processo.numero cai em "Sem permissão".
+// A aba é aberta pelo background (chrome.tabs.create): leva os cookies da sessão
+// e não esbarra no bloqueador de popup (o window.open após await perde o gesto).
+async function abrirAutosNovaAba(idProcesso, idTaskInstance, numero) {
+  function abrirBg(url) {
+    try {
+      chrome.runtime.sendMessage({ type: 'openTab', url: url }, function(){});
+    } catch(e) {
+      var _r = (window.open && window.open.__pje_original__) || window.open;
+      _r.call(window, url, '_blank');
+    }
+  }
+  if (!idProcesso) { abrirBg(getAutosUrl(numero)); return; } // sem id: melhor esforço
+  try {
+    var chave = await ProcessosAPI.getChaveAcesso(idProcesso);
+    if (!chave) throw new Error('chave de acesso vazia');
+    abrirBg(ProcessosAPI.buildAutosUrl(idProcesso, chave, idTaskInstance || ''));
+  } catch(e) {
+    console.warn('[Agrupador] Falha ao gerar chave dos autos p/ ' + numero + ': ' + e.message);
+    mostrarToastAgr('⚠️ Não gerou a chave de acesso — abrindo autos sem chave.', 'warning');
+    abrirBg(getAutosUrl(numero));
+  }
+}
+
 function renderizarTabelaAgrupador(overlay, processos, funcLabel, scanning) {
   var tbody = overlay.querySelector('#pje-agr-table-body');
   var titleEl = overlay.querySelector('#pje-agr-results-title');
@@ -81,6 +106,7 @@ function renderizarTabelaAgrupador(overlay, processos, funcLabel, scanning) {
   if (!window._agrVisited) window._agrVisited = {};
   var ICON_ABRIR = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
   var ICON_AUTOS = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+  var ICON_DECISAO = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>';
 
   var rows = '';
   for (var i = 0; i < pagina.length; i++) {
@@ -88,10 +114,13 @@ function renderizarTabelaAgrupador(overlay, processos, funcLabel, scanning) {
     var globalIdx = start + i + 1;
     var abrirUrl = p.idTaskInstance ? getMovimentarUrl(p.idProcesso, p.idTaskInstance) : '';
     var visitado = window._agrVisited[p.numero] ? ' agr-visited' : '';
-    var btnAutos = '<button class="pje-btn-agr pje-btn-agr-outline" disabled style="padding:4px 8px;font-size:11px;margin-left:4px" data-action="autos" data-numero="' + p.numero + '" title="Ver Autos Digitais">' + ICON_AUTOS + '</button>';
+    var btnAutos = '<button class="pje-btn-agr pje-btn-agr-outline" style="padding:4px 8px;font-size:11px;margin-left:4px" data-action="autos" data-numero="' + p.numero + '" data-id-processo="' + (p.idProcesso||'') + '" data-id-task="' + (p.idTaskInstance||'') + '" title="Ver Autos Digitais">' + ICON_AUTOS + '</button>';
+    var btnDecisao = p._linkDecisao
+      ? '<button class="pje-btn-agr pje-btn-agr-outline" style="padding:4px 8px;font-size:11px;margin-left:4px" data-action="decisao" data-url="' + String(p._linkDecisao).replace(/"/g,'&quot;') + '" data-numero="' + p.numero + '" title="Abrir última decisão">' + ICON_DECISAO + '</button>'
+      : '';
     var acoesHTML = abrirUrl
-      ? '<button class="pje-btn-agr pje-btn-agr-outline" style="padding:4px 8px;font-size:11px" data-action="abrir" data-url="' + abrirUrl.replace(/"/g,'&quot;') + '" data-numero="' + p.numero + '">' + ICON_ABRIR + ' Abrir</button>' + btnAutos
-      : '<span style="font-size:11px;color:#94a3b8">sem tarefa</span>' + btnAutos;
+      ? '<button class="pje-btn-agr pje-btn-agr-outline" style="padding:4px 8px;font-size:11px" data-action="abrir" data-url="' + abrirUrl.replace(/"/g,'&quot;') + '" data-numero="' + p.numero + '">' + ICON_ABRIR + ' Abrir</button>' + btnAutos + btnDecisao
+      : '<span style="font-size:11px;color:#94a3b8">sem tarefa</span>' + btnAutos + btnDecisao;
     var badge = p.idTaskInstance ? '<span class="agr-badge agr-badge-success">✓ Pronto</span>' : '<span class="agr-badge agr-badge-warning">⚠ Sem task</span>';
     var fmtData = function(ts) { if (!ts) return '—'; return new Date(ts).toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit', year:'numeric'}); };
     var dataChegada = fmtData(p.dataChegada);
@@ -106,9 +135,9 @@ function renderizarTabelaAgrupador(overlay, processos, funcLabel, scanning) {
   }
   tbody.innerHTML = rows;
 
-  // Event delegation: Abrir (marca a linha como visitada) + Ver Autos (overlay do content.js)
+  // Event delegation: Abrir / Ver Autos / Abrir última decisão
   tbody.querySelectorAll('button[data-action]').forEach(function(btn) {
-    btn.addEventListener('click', function(e) {
+    btn.addEventListener('click', async function(e) {
       e.stopPropagation();
       var action = btn.getAttribute('data-action');
       var numero = btn.getAttribute('data-numero');
@@ -117,16 +146,14 @@ function renderizarTabelaAgrupador(overlay, processos, funcLabel, scanning) {
         var tr = btn.closest('tr'); if (tr) tr.classList.add('agr-visited');
         window.open(btn.getAttribute('data-url'), '_blank');
       } else if (action === 'autos') {
-        var autosUrl = getAutosUrl(numero);
-        if (typeof criarOverlayAutos === 'function') {
-          criarOverlayAutos(autosUrl);
-          // Sobe o z-index do overlay de autos acima do modal do agrupador
-          // (ambos position:fixed; mesmo z-index + autos inserido depois no DOM = autos vence)
-          var ovAutos = document.getElementById('pje-autos-overlay');
-          if (ovAutos) ovAutos.style.zIndex = 2147483647;
-        } else {
-          window.open(autosUrl, '_blank');
-        }
+        // Abre os Autos Digitais numa NOVA ABA, autenticados com a chave de
+        // acesso (ca) — sem ela o PJe devolve "Sem permissão" (error.seam).
+        var idProc = btn.getAttribute('data-id-processo');
+        var idTask = btn.getAttribute('data-id-task') || '';
+        await abrirAutosNovaAba(idProc, idTask, numero);
+      } else if (action === 'decisao') {
+        var decUrl = btn.getAttribute('data-url');
+        if (decUrl) window.open(decUrl, '_blank');
       }
     });
   });
@@ -255,6 +282,7 @@ function _agrRuntime() {
       processos: [],              // matches encontrados (parciais durante o scan)
       processosErro: [],          // processos que falharam ao buscar (distinto de "não encontrado")
       multiFila: 0,
+      mfToken: 0,            // invalida loops de multi-fila ao trocar de view/análise
       cancelFlag: { cancel: false },
       uiOverlay: null,            // overlay atualmente conectado (null se modal fechado)
       _lastRenderedCount: -1      // p/ evitar re-renderizar tabela sem match novo
@@ -329,6 +357,7 @@ function _agrRenderUI(rt) {
 
       cardMf.onclick = async function() {
         if ((rt.multiFila || 0) === 0) return;
+        var meuToken = ++rt.mfToken;   // invalida loops de multi-fila anteriores
         _agrShowingMultiFila = true;
         _agrPage = 0;
         overlay._agrProcessosData = rt.processosMultiFila || [];
@@ -340,6 +369,8 @@ function _agrRenderUI(rt) {
         if (!mfList.length) return;
         mostrarToastAgr('🏷️ Buscando filas de ' + mfList.length + ' processo(s)...', 'info');
         for (var j = 0; j < mfList.length; j++) {
+          // Se o usuário trocou de view (Total / nova Multi-Fila / nova análise), interrompe
+          if (rt.mfToken !== meuToken) break;
           var proc = mfList[j];
           try {
             var r = await fetch(API + '/tarefas', {
@@ -357,16 +388,18 @@ function _agrRenderUI(rt) {
               console.log('[Agrupador] /tarefas para ' + proc.numero + ': ' + todasFilas.length + ' filas → ' + todasFilas.join(', '));
             }
           } catch(e) { console.warn('[Agrupador] /tarefas erro para ' + proc.numero + ': ' + e.message); }
-          // Re-render a cada 5 processos ou no último
-          if (j % 5 === 0 || j === mfList.length - 1) {
+          // Re-render a cada 5 processos ou no último — só se ainda estamos nesta view
+          if (rt.mfToken === meuToken && (j % 5 === 0 || j === mfList.length - 1)) {
             renderizarTabelaAgrupador(overlay, mfList, 'Multi-Fila (' + mfList.length + ' processo' + (mfList.length>1?'s':'') + ')', false);
           }
+          if (rt.mfToken !== meuToken) break;
           if (j < mfList.length - 1) await new Promise(function(r) { setTimeout(r, 400); });
         }
-        mostrarToastAgr('✅ ' + mfList.length + ' processo(s) multi-fila analisado(s).', 'success');
+        if (rt.mfToken === meuToken) mostrarToastAgr('✅ ' + mfList.length + ' processo(s) multi-fila analisado(s).', 'success');
       };
       cardTotal.onclick = function() {
         if (!_agrShowingMultiFila) return;
+        rt.mfToken++;   // cancela qualquer loop de busca de filas em andamento
         _agrShowingMultiFila = false;
         _agrPage = 0;
         overlay._agrProcessosData = rt.processos;
@@ -1018,6 +1051,7 @@ function abrirAgrupadorModal() {
       rt.mode = mode; rt.keywords = keywords; rt.keyword = kwStr; rt.funcLabel = funcLabel;
       rt.etapa = 'Preparando'; rt.total = 0; rt.done = 0; rt.matches = 0;
       rt.processos = []; rt.processosErro = []; rt.multiFila = 0;
+      rt.mfToken = (rt.mfToken || 0) + 1;   // cancela loop de multi-fila de uma análise anterior
       rt.cancelFlag = { cancel: false }; rt._lastRenderedCount = -1;
       var cancelFlag = rt.cancelFlag;
       _agrSalvarEstado(rt);
@@ -1075,8 +1109,20 @@ function abrirAgrupadorModal() {
           if (comTask.length > 0) {
             await parallelLimit(comTask, async function(proc) {
               try {
-                var html = await fetchPaginaHTMLviaFetch(getMovimentarUrlFetch(proc.idProcesso, proc.idTaskInstance), cancelFlag);
-                var result = buscaPalavrasNoHTML(html, keywords);
+                // 🔎 Busca o HTML da ÚLTIMA DECISÃO via autos (iframe frameHtml).
+                // Fallback p/ movimentar caso os autos não exponham o iframe da decisão.
+                var dec = (typeof ProcessosAPI !== 'undefined' && ProcessosAPI.fetchUltimaDecisao)
+                  ? await ProcessosAPI.fetchUltimaDecisao(proc.idProcesso, proc.idTaskInstance, cancelFlag)
+                  : null;
+                var htmlAlvo;
+                if (dec && dec.ok && dec.html) {
+                  htmlAlvo = dec.html;
+                  proc._linkDecisao = dec.link || '';
+                } else {
+                  console.warn('[Agrupador] Autos sem decisão (' + (dec && dec.motivo) + ') p/ ' + proc.numero + ' — usando página de movimentar');
+                  htmlAlvo = await fetchPaginaHTMLviaFetch(getMovimentarUrlFetch(proc.idProcesso, proc.idTaskInstance), cancelFlag);
+                }
+                var result = DecisaoScrap.buscarKeyword(htmlAlvo, keywords);
                 proc._match = result.found;
                 proc._matchInfo = result.contextos;
                 if (result.found) {
@@ -1181,8 +1227,19 @@ function abrirAgrupadorModal() {
             if (comTaskM.length > 0) {
               await parallelLimit(comTaskM, async function(procM) {
                 try {
-                  var htmlM = await fetchPaginaHTMLviaFetch(getMovimentarUrlFetch(procM.idProcesso, procM.idTaskInstance), cancelFlag);
-                  var resultM = buscaPalavrasNoHTML(htmlM, keywords);
+                  // 🔎 Busca o HTML da ÚLTIMA DECISÃO via autos (iframe frameHtml).
+                  var decM = (typeof ProcessosAPI !== 'undefined' && ProcessosAPI.fetchUltimaDecisao)
+                    ? await ProcessosAPI.fetchUltimaDecisao(procM.idProcesso, procM.idTaskInstance, cancelFlag)
+                    : null;
+                  var htmlAlvoM;
+                  if (decM && decM.ok && decM.html) {
+                    htmlAlvoM = decM.html;
+                    procM._linkDecisao = decM.link || '';
+                  } else {
+                    console.warn('[Agrupador] Autos sem decisão (' + (decM && decM.motivo) + ') p/ ' + procM.numero + ' — usando página de movimentar');
+                    htmlAlvoM = await fetchPaginaHTMLviaFetch(getMovimentarUrlFetch(procM.idProcesso, procM.idTaskInstance), cancelFlag);
+                  }
+                  var resultM = DecisaoScrap.buscarKeyword(htmlAlvoM, keywords);
                   procM._match = resultM.found;
                   procM._matchInfo = resultM.contextos;
                   if (resultM.found) {

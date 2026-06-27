@@ -46,5 +46,28 @@ var AutosScrap = (function() {
     return { pessoasAtivo: pessoasAtivo, pessoasPassivo: pessoasPassivo, advogados: todosAdvs };
   }
 
-  return { extrairPolos: extrairPolos };
+  // Extrai o link (src) da ÚLTIMA DECISÃO exibida nos autos digitais.
+  // No PJe a decisão mais recente é carregada num iframe de visualização:
+  //   <iframe id="frameHtml" src="/pje1grau/seam/resource/rest/pje-legacy/documento/download/212309112" ...>
+  // Retorna o caminho (relativo ou absoluto) do documento, ou null.
+  function extrairLinkUltimaDecisao(html) {
+    if (!html) return null;
+    // 1) iframe de visualização da decisão (frameHtml) — caminho preferido
+    try {
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var iframe = doc.querySelector('iframe#frameHtml[src*="documento/download"]')
+               || doc.querySelector('iframe#frameHtml[src]')
+               || doc.querySelector('iframe[src*="documento/download"]');
+      if (iframe) {
+        var src = (iframe.getAttribute('src') || '').trim();
+        if (src) return src;
+      }
+    } catch(e) {}
+    // 2) Fallback: último link documento/download/{id} presente no HTML bruto
+    var m = html.match(/\/pje1grau\/[^"'\s<>]*?documento\/download\/\d+/gi);
+    if (m && m.length) return m[m.length - 1];
+    return null;
+  }
+
+  return { extrairPolos: extrairPolos, extrairLinkUltimaDecisao: extrairLinkUltimaDecisao };
 })();
