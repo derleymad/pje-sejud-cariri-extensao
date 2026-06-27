@@ -72,6 +72,9 @@ async function abrirAutosNovaAba(idProcesso, idTaskInstance, numero) {
 // POLOS (ativo/passivo) — indicador por linha + detalhe expansível
 // ═══════════════════════════════════════════════════════════
 
+var AGR_ICON_USER = '<svg class="agr-i" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+var AGR_ICON_BRIEFASE = '<svg class="agr-i" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>';
+
 // Status dos advogados de um polo: 'all' | 'some' | 'none' | 'empty' | 'unknown'
 function poloStatusAdv(lista) {
   if (!lista) return 'unknown';        // sem dados (ainda não carregado)
@@ -100,25 +103,25 @@ function renderPoloStatusPill(status, letra, nomePolo) {
          '<b>' + letra + '</b>' + m.sym + '</span>';
 }
 
-// Card de uma pessoa (nome + advogados). Réplica enxuta do analisador-polos.
+// Card de uma pessoa (nome + advogados).
 function renderPoloPessoaCard(p, corBorda, corBg) {
   var advHtml = '';
   if (p.advogados && p.advogados.length) {
     advHtml = '<div class="agr-polo-advs">';
     p.advogados.forEach(function(a) {
-      advHtml += '<div class="agr-polo-adv"><span class="agr-polo-adv-ico">💼</span><span>' + a + '</span></div>';
+      advHtml += '<div class="agr-polo-adv">' + AGR_ICON_BRIEFASE + '<span>' + a + '</span></div>';
     });
     advHtml += '</div>';
   } else {
-    advHtml = '<div class="agr-polo-semadv">(sem advogado)</div>';
+    advHtml = '<div class="agr-polo-semadv">sem advogado</div>';
   }
-  return '<div class="agr-polo-card" style="border-left-color:' + corBorda + ';background:' + corBg + '">' +
-           '<div class="agr-polo-nome"><span class="agr-polo-user">👤</span><span>' + (p.nome || '—') + '</span></div>' +
+  return '<div class="agr-polo-card" style="border-left-color:' + corBorda + '">' +
+           '<div class="agr-polo-nome">' + AGR_ICON_USER + '<span>' + (p.nome || '—') + '</span></div>' +
            advHtml +
          '</div>';
 }
 
-// Painel de detalhe dos polos (2 colunas: ativo / passivo).
+// Painel de detalhe dos polos (topbar com status + 2 colunas: ativo / passivo).
 function renderPoloPanel(proc, polos) {
   if (!polos) {
     return '<div class="agr-polo-empty">Não foi possível carregar os polos deste processo.</div>';
@@ -128,24 +131,24 @@ function renderPoloPanel(proc, polos) {
   var ativoAdv = ativo.filter(function(p){ return p.advogados && p.advogados.length; }).length;
   var passivoAdv = passivo.filter(function(p){ return p.advogados && p.advogados.length; }).length;
   var cardsAtivo = ativo.length
-    ? ativo.map(function(p){ return renderPoloPessoaCard(p, '#10b981', '#f0fdf4'); }).join('')
-    : '<div class="agr-polo-semadv">(polo vazio)</div>';
+    ? ativo.map(function(p){ return renderPoloPessoaCard(p, '#10b981'); }).join('')
+    : '<div class="agr-polo-semadv">Nenhuma parte no polo ativo.</div>';
   var cardsPassivo = passivo.length
-    ? passivo.map(function(p){ return renderPoloPessoaCard(p, '#f97316', '#fff7ed'); }).join('')
-    : '<div class="agr-polo-semadv">(polo vazio)</div>';
+    ? passivo.map(function(p){ return renderPoloPessoaCard(p, '#f97316'); }).join('')
+    : '<div class="agr-polo-semadv">Nenhuma parte no polo passivo.</div>';
   return '' +
-    '<div class="agr-polo-resumo">' +
-      '<strong>' + (proc.numero || '') + '</strong> · ' +
-      '<span>' + ativo.length + ' no ativo (' + ativoAdv + ' c/ advogado)</span> · ' +
-      '<span>' + passivo.length + ' no passivo (' + passivoAdv + ' c/ advogado)</span>' +
+    '<div class="agr-polo-topbar">' +
+      '<span class="agr-polo-topnum">' + (proc.numero || '') + '</span>' +
+      '<span class="agr-polo-topstat">' + renderPoloStatusPill(poloStatusAdv(ativo), 'A', 'ativo') + '<small>ativo ' + ativoAdv + '/' + ativo.length + ' c/ advogado</small></span>' +
+      '<span class="agr-polo-topstat">' + renderPoloStatusPill(poloStatusAdv(passivo), 'P', 'passivo') + '<small>passivo ' + passivoAdv + '/' + passivo.length + ' c/ advogado</small></span>' +
     '</div>' +
     '<div class="agr-polo-grid">' +
       '<div class="agr-polo-col">' +
-        '<div class="agr-polo-head agr-polo-head-ativo">POLO ATIVO (' + ativo.length + ')</div>' +
+        '<div class="agr-polo-head agr-polo-head-ativo"><span>POLO ATIVO</span><b>' + ativo.length + '</b></div>' +
         cardsAtivo +
       '</div>' +
       '<div class="agr-polo-col">' +
-        '<div class="agr-polo-head agr-polo-head-passivo">POLO PASSIVO (' + passivo.length + ')</div>' +
+        '<div class="agr-polo-head agr-polo-head-passivo"><span>POLO PASSIVO</span><b>' + passivo.length + '</b></div>' +
         cardsPassivo +
       '</div>' +
     '</div>';
@@ -260,14 +263,14 @@ function renderizarTabelaAgrupador(overlay, processos, funcLabel, scanning) {
     var globalIdx = start + i + 1;
     var abrirUrl = p.idTaskInstance ? getMovimentarUrl(p.idProcesso, p.idTaskInstance) : '';
     var visitado = window._agrVisited[p.numero] ? ' agr-visited' : '';
-    var btnAutos = '<button class="' + actBtnClass('autos', p.numero) + '" style="padding:4px 8px;font-size:11px;margin-left:4px" data-action="autos" data-numero="' + p.numero + '" data-id-processo="' + (p.idProcesso||'') + '" data-id-task="' + (p.idTaskInstance||'') + '" title="Ver Autos Digitais">' + ICON_AUTOS + '</button>';
+    var btnAutos = '<button class="' + actBtnClass('autos', p.numero) + '" style="padding:4px 8px;font-size:11px;margin-left:4px" data-action="autos" data-numero="' + p.numero + '" data-id-processo="' + (p.idProcesso||'') + '" data-id-task="' + (p.idTaskInstance||'') + '" title="Ver Autos Digitais">' + ICON_AUTOS + ' Ver autos</button>';
     var btnDecisao = p._linkDecisao
-      ? '<button class="' + actBtnClass('decisao', p.numero) + '" style="padding:4px 8px;font-size:11px;margin-left:4px" data-action="decisao" data-url="' + String(p._linkDecisao).replace(/"/g,'&quot;') + '" data-numero="' + p.numero + '" title="Abrir última decisão">' + ICON_DECISAO + ' Ver autos</button>'
+      ? '<button class="' + actBtnClass('decisao', p.numero) + '" style="padding:4px 8px;font-size:11px;margin-left:4px" data-action="decisao" data-url="' + String(p._linkDecisao).replace(/"/g,'&quot;') + '" data-numero="' + p.numero + '" title="Abrir última decisão">' + ICON_DECISAO + '</button>'
       : '';
     var btnAbrir = abrirUrl
       ? '<button class="' + actBtnClass('abrir', p.numero) + '" style="padding:4px 8px;font-size:11px" data-action="abrir" data-url="' + abrirUrl.replace(/"/g,'&quot;') + '" data-numero="' + p.numero + '" title="Abrir/Movimentar">' + ICON_ABRIR + ' Abrir</button>'
       : '<span style="font-size:11px;color:#94a3b8">sem tarefa</span>';
-    var acoesHTML = btnAbrir + btnAutos + btnDecisao;
+    var acoesHTML =  btnAutos + btnDecisao;
     var fmtData = function(ts) { if (!ts) return '—'; return new Date(ts).toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit', year:'numeric'}); };
     var dataChegada = fmtData(p.dataChegada);
     var ultMov = fmtData(p.ultimoMovimento);
@@ -828,39 +831,44 @@ function injetarEstilosAgrupador() {
 .agr-tag-x:hover{background:rgba(255,255,255,.4)}
 
 /* ── Polos: indicador por linha + detalhe expansível ── */
-.agr-expand-btn{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:none;background:transparent;color:#94a3b8;cursor:pointer;border-radius:4px;transition:transform .15s,background .15s,color .15s;vertical-align:middle;margin-right:2px;padding:0}
+.agr-expand-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:26px;border:none;background:transparent;color:#64748b;cursor:pointer;border-radius:6px;transition:transform .15s,background .15s,color .15s;vertical-align:middle;margin-right:4px;padding:0}
 .agr-expand-btn:hover{background:#e2e8f0;color:#0f172a}
 .agr-expand-btn:focus-visible{outline:2px solid #3b82f6;outline-offset:1px}
-.agr-expand-btn.agr-expand-open{transform:rotate(90deg);color:#0f172a}
-.agr-polos-cell{display:flex;gap:3px;justify-content:center;align-items:center}
-.agr-polo-pill{display:inline-flex;align-items:center;gap:1px;padding:1px 5px;border-radius:6px;font-size:10px;font-weight:700;line-height:1.4;border:1px solid transparent;white-space:nowrap}
+.agr-expand-btn svg{width:14px;height:14px}
+.agr-expand-btn.agr-expand-open{transform:rotate(90deg);color:#0f172a;background:#e2e8f0}
+.agr-polos-cell{display:flex;gap:4px;justify-content:center;align-items:center}
+.agr-polo-pill{display:inline-flex;align-items:center;gap:2px;padding:2px 7px;border-radius:6px;font-size:11px;font-weight:700;line-height:1.4;border:1px solid transparent;white-space:nowrap}
 .agr-polo-pill b{font-weight:800;opacity:.85}
 .agr-polo-ok{background:#f0fdf4;color:#059669;border-color:#bbf7d0}
 .agr-polo-warn{background:#fffbeb;color:#d97706;border-color:#fde68a}
 .agr-polo-none{background:#fef2f2;color:#dc2626;border-color:#fecaca}
 .agr-polo-unknown{background:#f8fafc;color:#94a3b8;border-color:#e2e8f0}
-.agr-detail>td{padding:0;border-bottom:1px solid #e2e8f0;background:#fafafa}
-.agr-detail-cell{padding:14px 18px}
-.agr-polo-panel{border:1px solid #e2e8f0;border-radius:10px;background:#fff;overflow:hidden}
-.agr-polo-resumo{padding:10px 14px;font-size:12px;color:#475569;border-bottom:1px solid #f1f5f9;background:#f8fafc;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.agr-polo-resumo strong{font-family:'SF Mono','Fira Code',monospace;color:#0f172a}
+.agr-detail>td{padding:0;border-bottom:1px solid #e2e8f0;background:#f8fafc}
+.agr-detail-cell{padding:14px 16px}
+.agr-polo-panel{border:1px solid #e2e8f0;border-radius:10px;background:#fff;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+.agr-polo-topbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 14px;background:#f8fafc;border-bottom:1px solid #e2e8f0}
+.agr-polo-topnum{font-family:'SF Mono','Fira Code',monospace;font-size:12px;font-weight:700;color:#0f172a}
+.agr-polo-topstat{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#64748b}
+.agr-polo-topstat small{color:#94a3b8}
 .agr-polo-grid{display:grid;grid-template-columns:1fr 1fr}
 @media(max-width:760px){.agr-polo-grid{grid-template-columns:1fr}}
-.agr-polo-col{padding:12px 14px}
+.agr-polo-col{padding:14px}
 .agr-polo-col+.agr-polo-col{border-left:1px solid #f1f5f9}
-.agr-polo-head{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:4px 10px;border-radius:6px;margin-bottom:8px;display:inline-block}
+.agr-polo-head{display:flex;align-items:center;justify-content:space-between;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:5px 10px;border-radius:6px;margin-bottom:10px}
+.agr-polo-head b{font-size:11px;font-weight:800;background:rgba(255,255,255,.75);color:#0f172a;padding:0 7px;border-radius:99px;line-height:1.6}
 .agr-polo-head-ativo{background:#f0fdf4;color:#059669}
 .agr-polo-head-passivo{background:#fff7ed;color:#ea580c}
-.agr-polo-card{border-left:3px solid #e2e8f0;border-radius:0 8px 8px 0;padding:8px 10px;margin-bottom:6px}
+.agr-polo-card{border:1px solid #f1f5f9;border-left:3px solid #e2e8f0;border-radius:8px;padding:9px 11px;margin-bottom:7px;background:#fff}
 .agr-polo-card:last-child{margin-bottom:0}
 .agr-polo-nome{display:flex;align-items:flex-start;gap:6px;font-size:12px;font-weight:600;color:#0f172a;line-height:1.35}
-.agr-polo-user{flex-shrink:0}
-.agr-polo-advs{margin-top:5px;display:flex;flex-direction:column;gap:2px}
-.agr-polo-adv{display:flex;align-items:flex-start;gap:5px;font-size:10px;color:#64748b;line-height:1.35}
-.agr-polo-adv-ico{flex-shrink:0}
-.agr-polo-semadv{font-size:10px;color:#94a3b8;font-style:italic;margin-top:4px}
-.agr-polo-loading{padding:18px;text-align:center;font-size:12px;color:#64748b}
-.agr-polo-empty{padding:18px;text-align:center;font-size:12px;color:#94a3b8}
+.agr-i{flex-shrink:0;display:inline-flex}
+.agr-polo-nome .agr-i{color:#475569;margin-top:1px}
+.agr-polo-advs{margin-top:6px;display:flex;flex-direction:column;gap:3px}
+.agr-polo-adv{display:flex;align-items:flex-start;gap:5px;font-size:10.5px;color:#64748b;line-height:1.35}
+.agr-polo-adv .agr-i{color:#8b5cf6;margin-top:1px}
+.agr-polo-semadv{font-size:10.5px;color:#94a3b8;font-style:italic;margin-top:5px}
+.agr-polo-loading{padding:22px;text-align:center;font-size:12px;color:#64748b}
+.agr-polo-empty{padding:22px;text-align:center;font-size:12px;color:#94a3b8}
 
 /* ── Etiquetas (badges shadcn) ── */
 .agr-etiqueta{display:inline-flex;align-items:center;font-size:10px;font-weight:500;padding:2px 8px;border-radius:6px;border:1px solid #e2e8f0;background:#fff;color:#475569;margin:1px;line-height:1.4;white-space:nowrap;transition:border-color .15s,color .15s}
