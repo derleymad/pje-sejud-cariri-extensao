@@ -1640,11 +1640,37 @@ function abrirAgrupadorModal() {
         var rtCsv = _agrRuntime();
         var matchLabel = rtCsv.keyword || '';
         var filaInfo = _agrFilaFilter !== 'todas' ? ' · Filtro: ' + _agrFilaFilter.substring(0, 60) : '';
-        var csv = 'Número;Data Chegada;Última Movimentação;idProcesso;idTaskInstance;Fila;Etiquetas;Match\n';
+
+        // Formata um polo (pessoas + representantes) e o status p/ o CSV.
+        function poloParaCsv(pessoas) {
+          if (!pessoas || !pessoas.length) return '';
+          return pessoas.map(function(p) {
+            var reps = (p.representantes && p.representantes.length) ? p.representantes
+                     : (p.advogados || []).map(function(a){ return { tipo: 'advogado', texto: a }; });
+            var repTxt = reps.length
+              ? ' (' + reps.map(function(r){ return (REP_TIPOS[r.tipo] || REP_TIPOS.outro).lbl + ': ' + r.texto; }).join('; ') + ')'
+              : ' (sem representação)';
+            return (p.nome || '—') + repTxt;
+          }).join(' | ');
+        }
+        function statusPolosCsv(polos) {
+          if (!polos) return '—';
+          var a = polos.pessoasAtivo || [], pa = polos.pessoasPassivo || [];
+          return 'Ativo ' + a.filter(poloTemRep).length + '/' + a.length + '; Passivo ' + pa.filter(poloTemRep).length + '/' + pa.length;
+        }
+        function csvCel(s) { return '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"'; }
+
+        var csv = 'Número;Data Chegada;Última Movimentação;idProcesso;idTaskInstance;Fila;Etiquetas;Match;Polo Ativo;Polo Passivo;Representação\n';
         filtrados.forEach(function(p) {
           var fmtCsvData = function(ts) { if (!ts) return ''; return new Date(ts).toLocaleDateString('pt-BR'); };
           var etiquetasTxt = (p.etiquetas || []).join(', ');
-          csv += (p.numero||'') + ';' + fmtCsvData(p.dataChegada) + ';' + fmtCsvData(p.ultimoMovimento) + ';' + (p.idProcesso||'') + ';' + (p.idTaskInstance||'') + ';' + (p.fila||'') + ';"' + etiquetasTxt.replace(/"/g,'""') + '";' + matchLabel + '\n';
+          var polos = p._polos;
+          csv += (p.numero||'') + ';' + fmtCsvData(p.dataChegada) + ';' + fmtCsvData(p.ultimoMovimento) + ';' +
+                 (p.idProcesso||'') + ';' + (p.idTaskInstance||'') + ';' + (p.fila||'') + ';' +
+                 csvCel(etiquetasTxt) + ';' + matchLabel + ';' +
+                 csvCel(poloParaCsv(polos && polos.pessoasAtivo)) + ';' +
+                 csvCel(poloParaCsv(polos && polos.pessoasPassivo)) + ';' +
+                 csvCel(statusPolosCsv(polos)) + '\n';
         });
         var blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
         var url = URL.createObjectURL(blob);
